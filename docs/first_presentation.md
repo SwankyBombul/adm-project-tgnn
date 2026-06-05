@@ -1,11 +1,25 @@
-# Temporal Graphs for Recommendations — plan podejścia (prezentacja „Approach”)
+# Temporal Graphs for Recommendations
 
 **Przedmiot:** Advanced Data Mining (ADM)  
-**Temat:** Temporal Graph Networks w dynamicznych rekomendacjach sesyjnych  
 **Zespół:** Wiktor Małysa (349105), Mikołaj Orzechowski (363917)  
-**Cel dokumentu:** struktura od definicji problemu przez dane i metodologię po plan implementacji i ewaluacji (punkt 2 harmonogramu: *presentation of the approach*).
 
 ---
+
+## TODO 02.06.26
+
+* [Paper TAGNN](https://arxiv.org/pdf/2005.02844)
+    
+    zamiast sr-gnn, użyc tagnn który ma atencje i z bomby będzie lepszy - nie ma sensu tgn porównywać z sr-gnn
+    
+* trzeba uważać na kaskadowość w zbiorze uczącym jeśli mamy 
+
+    * c1->c2->+100 innych produktow
+
+    albo mamy:
+    
+    * c1->c7 15 razy mamy taką sekwencję
+
+    to model w zbiorze uczącym nauczy się rekomendować po c1 - c2, bo przy budowie sekwencji model zobaczy c1->c2 100 razy a tak naprawde to c7 jest częstszym produktem do rekomendacji
 
 ## 1. Definicja problemu
 
@@ -17,18 +31,21 @@ Systemy e-commerce rejestrują strumień interakcji użytkowników (kliknięcia,
 
 W naszym projekcie **Next-Item Prediction** oznacza:
 
-- Mając historię interakcji w sesji do momentu \(t_{n-1}\), przewidzieć przedmiot kliknięty w \(t_n\).
+- Mając historię interakcji w sesji do momentu $t_{n-1}$, przewidzieć przedmiot kliknięty w $t_n$.
 - Nie wymaga ręcznych etykiet — uczymy się **samonadzorowanie** z logów kliknięć (każde kolejne kliknięcie jest etykietą dla poprzedniego kroku).
 
 W podejściu z **Temporal Graph Networks (TGN)** zadanie to nie jest czysta sekwencja (jak w RNN), lecz **dynamiczne przewidywanie krawędzi (link prediction)** w grafie ewoluującym w czasie ciągłym.
 
 ### 1.3 Model grafowy: Continuous-Time Dynamic Graph (CTDG)
 
+![image](https://hackmd.io/_uploads/SkeKCCB2lMe.png)
+
+
 | Element | Definicja w projekcie |
 |--------|------------------------|
 | **Wierzchołki** | Graf dwudzielny: **sesje** (jako „użytkownicy”) ↔ **przedmioty** (items). Brak jawnego user ID w Yoochoose — każda sesja = osobny węzeł po stronie „użytkownika”. |
-| **Zdarzenia** | Każde kliknięcie = interakcja \(e_{ij}(t)\) między sesją \(i\) a przedmiotem \(j\) w czasie \(t\). |
-| **Cel** | Dla pary \((i, t)\) wskazać przedmiot \(j\) z najwyższym \(p(i,j \mid t)\) — **Future Edge / Link Prediction**. |
+| **Zdarzenia** | Każde kliknięcie = interakcja $e_{ij}(t)$ między sesją $i$ a przedmiotem $j$ w czasie $t$. |
+| **Cel** | Dla pary $(i, t)$ wskazać przedmiot $j$ z najwyższym $p(i,j \mid t)$ — **Future Edge / Link Prediction**. |
 
 Opcjonalnie (rozszerzenie): plik zakupów (`yoochoose-buys.dat`) jako drugi typ zdarzenia o silniejszym sygnale decyzyjnym.
 
@@ -38,7 +55,7 @@ Opcjonalnie (rozszerzenie): plik zakupów (`yoochoose-buys.dat`) jako drugi typ 
 
 ### 2.1 Zbiór: Yoochoose (RecSys Challenge 2015)
 
-**Źródło:** [RecSys Challenge 2015](http://2015.recsyschallenge.com/) — logi sesji e-commerce.
+**Źródło:** [RecSys Challenge 2015](https://www.kaggle.com/datasets/chadgostopp/recsys-challenge-2015) — logi sesji e-commerce.
 
 | Plik | Zawartość | Pola |
 |------|-----------|------|
@@ -46,7 +63,7 @@ Opcjonalnie (rozszerzenie): plik zakupów (`yoochoose-buys.dat`) jako drugi typ 
 | `yoochoose-buys.dat` | Zakupy | Session ID, Timestamp, Item ID, Price, Quantity |
 | `yoochoose-test.dat` | Sesje testowe (tylko kliknięcia) | Jak clicks — bez odpowiadających buy w buys |
 
-**Format czasu:** `YYYY-MM-DDThh:mm:ss.SSSZ` — rozdzielczość do **milisekund** (kluczowe dla \(\Delta t\) w TGN).
+**Format czasu:** `YYYY-MM-DDThh:mm:ss.SSSZ` — rozdzielczość do **milisekund** (kluczowe dla $\Delta t$ w TGN).
 
 **Pole Category (cechy krawędzi):**
 
@@ -57,24 +74,17 @@ Opcjonalnie (rozszerzenie): plik zakupów (`yoochoose-buys.dat`) jako drugi typ 
 
 ### 2.2 Dlaczego Yoochoose pasuje do TGN
 
-1. **Czas ciągły** — gęste sesje z krótkimi odstępami między kliknięciami; TGN wykorzystuje \(\Delta t\) między zdarzeniami.
+1. **Czas ciągły** — gęste sesje z krótkimi odstępami między kliknięciami; TGN wykorzystuje $\Delta t$ między zdarzeniami.
 2. **Multigraf / typy zdarzeń** — clicks vs buys jako różne typy krawędzi (opcjonalnie).
 3. **Cechy krawędzi** — Category, Price, Quantity → wejście do message function i temporal attention.
 4. **Indukcja / cold start** — nowe sesje w teście (`yoochoose-test.dat`); TGN inicjalizuje pamięć zerami i buduje reprezentację „w locie”.
 5. **Skala** — dziesiątki milionów kliknięć → w Colab planujemy **chronologiczne podpróbkowanie** (np. 1/32–1/64 zbioru) z zachowaniem struktury sesji.
 
-### 2.3 Alternatywy (odrzucone)
-
-Rozważaliśmy m.in. **Steam** i **MovieLens** — odrzucamy na rzecz Yoochoose, bo:
-
-- Steam: niska rozdzielczość czasowa (dni/miesiące), profil długoterminowy zamiast sesji w sekundach.
-- TGN i *temporal attention* najlepiej wykorzystują **staleness** i mikro-dynamikę sesji — to dokładnie profil Yoochoose.
-
-### 2.4 Przygotowanie danych (wspólny pipeline)
+### 2.3 Przygotowanie danych (wspólny pipeline)
 
 1. **Podpróbkowanie** — losowa/chronologiczna frakcja (np. 5–10% lub 1/64) pod RAM Colaba.  
-2. **Podział chronologiczny** — np. 70% / 15% / 15% czasu (train / val / test); **bez** losowego `train_test_split`.  
-3. **Mapowanie ID** — Session ID i Item ID → indeksy \(0 \ldots N-1\).  
+2. **Podział chronologiczny** — np. 70% / 15% / 15% czasu (train / val / test);.  
+3. **Mapowanie ID** — Session ID i Item ID → indeksy $0 \ldots N-1$.  
 4. **Timestamp** — konwersja do skalarów (sekundy/ms od początku zbioru).  
 5. **Cechy krawędzi** — One-Hot / embedding dla `Category` (i opcjonalnie buy features).  
 6. **Format wyjściowy** — wspólny format sesji + interakcji czasowych dla wszystkich modeli.
@@ -85,7 +95,7 @@ Rozważaliśmy m.in. **Steam** i **MovieLens** — odrzucamy na rzecz Yoochoose,
 
 ### 3.1 Oś projektu: ewolucja modeli
 
-Porównanie trzech poziomów abstrakcji na **tym samym** podzbiorze Yoochoose:
+Porównanie na **tym samym** podzbiorze Yoochoose:
 
 ```text
 GRU4Rec (sekwencja)  ⟷  SR-GNN (graf statyczny/sesyjny)  ⟷  TGN (graf dynamiczny, czas ciągły)
@@ -95,7 +105,7 @@ GRU4Rec (sekwencja)  ⟷  SR-GNN (graf statyczny/sesyjny)  ⟷  TGN (graf dynami
 |-------|------|------|
 | **GRU4Rec** | Sesja = sekwencja ID produktów; GRU → następny item | Ukryty w kolejności kroków |
 | **SR-GNN** | Sesja = mały graf skierowany (kliknięcia → krawędzie); GGNN + attention pooling | Dyskretna kolejność, bez ms |
-| **TGN** | Globalny graf dwudzielny sesja–item; pamięć + wiadomości + temporal attention | Ciągły, \(\Delta t\) |
+| **TGN** | Globalny graf dwudzielny sesja–item; pamięć + wiadomości + temporal attention | Ciągły, $\Delta t$ |
 
 ### 3.2 Architektura docelowa: TGN-attn
 
@@ -103,19 +113,19 @@ Pięć modułów TGN (zgodnie z literaturą Rossi et al.):
 
 | Moduł | Wybór w projekcie | Uzasadnienie |
 |-------|-------------------|--------------|
-| **Memory** | Wektor stanu \(s_i(t)\) per węzeł; init = 0 | Długoterminowa kompresja historii |
-| **Message function** | **Identity** (konkatenacja stanu, \(\Delta t\), cech krawędzi) | Proste, skuteczne na start |
+| **Memory** | Wektor stanu $s_i(t)$ per węzeł; init = 0 | Długoterminowa kompresja historii |
+| **Message function** | **Identity** (konkatenacja stanu, $\Delta t$, cech krawędzi) | Proste, skuteczne na start |
 | **Message aggregator** | **Last** (najświeższa wiadomość w batchu) | Szybkość w Colab vs mean |
 | **Memory updater** | **GRU** | Dobry kompromis jakość / koszt |
 | **Embedding** | **1-warstwowa Temporal Graph Attention** | Walka ze *memory staleness*; sąsiedzi dostarczają świeży kontekst gdy węzeł nieaktualizowany |
 
-**Memory staleness:** pamięć sesji odświeża się tylko przy jej kliknięciach; TGN-attn agreguje stany sąsiadów (items, współwystępujące w trendach), więc embedding w \(t\) pozostaje aktualny.
+**Memory staleness:** pamięć sesji odświeża się tylko przy jej kliknięciach; TGN-attn agreguje stany sąsiadów (items, współwystępujące w trendach), więc embedding w $t$ pozostaje aktualny.
 
 **Optymalizacja:** 1 warstwa attention wystarczy — pamięć sąsiadów niesie informację z dalszej historii.
 
 ### 3.3 Dekoder i uczenie (TGN)
 
-- **Dekoder:** MLP na parach embeddingów \(z_i(t), z_j(t)\) → \(p((i,j) \mid t)\).
+- **Dekoder:** MLP na parach embeddingów $z_i(t), z_j(t)$ → $p((i,j) \mid t)$.
 - **Loss:** Binary Cross-Entropy z **negative sampling** (pozytywna krawędź = prawdziwe kliknięcie; negatywy = losowe itemy).
 - **Batch size:** ok. **200** — zbyt duży batch → rozjazd pamięci wewnątrz paczki.
 
@@ -123,7 +133,7 @@ Pięć modułów TGN (zgodnie z literaturą Rossi et al.):
 
 Kolejność w pętli treningowej:
 
-1. Batch \(N\) interakcji (chronologicznie).
+1. Batch $N$ interakcji (chronologicznie).
 2. Aktualizacja pamięci wiadomościami z **poprzednich** batchy.
 3. Embeddingi + predykcja + strata (BCE) dla bieżącego batcha.
 4. Zapis bieżących interakcji do **Raw Message Store** na kolejny krok.
@@ -133,16 +143,7 @@ Nigdy nie aktualizujemy pamięci zdarzeniem **przed** jego przewidzeniem w tym s
 ### 3.5 Próbkowanie sąsiedztwa
 
 - **Neighbor sampling** zamiast pełnej historii (ograniczenie RAM).
-- **Most recent** (np. \(k=10\) najświeższych krawędzi) — w danych sekwencyjnych najnowsze interakcje niosą najwięcej sygnału.
-
-### 3.6 Narzędzia
-
-| Warstwa | Stack |
-|---------|--------|
-| Język | Python 3 |
-| Deep learning | PyTorch |
-| Grafy | PyTorch Geometric (`TGN`, `TemporalData`, `GatedGraphConv`, …) |
-| Środowisko | Google Colab (GPU) |
+- **Most recent** (np. $k=10$ najświeższych krawędzi) — w danych sekwencyjnych najnowsze interakcje niosą najwięcej sygnału.
 
 ---
 
@@ -157,24 +158,24 @@ Nigdy nie aktualizujemy pamięci zdarzeniem **przed** jego przewidzeniem w tym s
 ### Faza 2 — GRU4Rec (baseline)
 
 - `nn.Embedding` → `nn.GRU` → warstwa liniowa na cały katalog itemów  
-- Wejście: item w \(t\); target: item w \(t+1\)  
+- Wejście: item w $t$; target: item w $t+1$  
 - Loss: **Cross-Entropy** (wieloklasowa)
 
 ### Faza 3 — SR-GNN
 
-- Sesja \([A,B,C]\) → węzły \(\{A,B,C\}\), krawędzie \((A\to B), (B\to C)\)  
+- Sesja $[A,B,C]$ → węzły $\{A,B,C\}$, krawędzie $(A\to B), (B\to C)$  
 - `GatedGraphConv` + attention pooling reprezentacji sesji  
 - Skalarne podobieństwo do embeddingów kandydatów
 
 ### Faza 4 — TGN
 
 - `TemporalData`: `(src=session, dst=item, t, edge_attr)` posortowane po czasie  
-- Konfiguracja: `TGNMemory`, Identity, Last, GRUCell, TemporalGraphAttention, \(k=10\) neighbors  
+- Konfiguracja: `TGNMemory`, Identity, Last, GRUCell, TemporalGraphAttention, $k=10$ neighbors  
 - Trening: negative sampling + `BCEWithLogitsLoss` + Raw Message Store
 
 ### Faza 5 — Ewaluacja i raport
 
-- Te same metryki i ten sam zbiór testowy dla wszystkich modelów  
+- Te same metryki i ten sam zbiór testowy dla wszystkich modeli  
 - Porównanie czasu epoki i liczby parametrów (trade-off)
 
 ---
@@ -188,7 +189,7 @@ Nigdy nie aktualizujemy pamięci zdarzeniem **przed** jego przewidzeniem w tym s
 
 Dla każdej interakcji: ranking wszystkich itemów (lub próbka + pełna ewaluacja na val) — pozycja ground-truth w TOP-20.
 
-### 5.2 Ustawienia TGN (warto wspomnieć na prezentacji)
+### 5.2 Ustawienia TGN
 
 | Ustawienie | Opis |
 |------------|------|
@@ -204,31 +205,7 @@ Priorytet: trójka **GRU4Rec → SR-GNN → TGN**.
 
 ---
 
-## 6. Proponowana struktura slajdów (3–5 min)
-
-| # | Slajd | Treść |
-|---|--------|--------|
-| 1 | Problem i zadanie | Sesyjne Next-Item Prediction jako CTDG / link prediction |
-| 2 | Dane | Yoochoose: pola, czas ms, Category, skala, podpróbkowanie |
-| 3 | Podejście główne | Schemat TGN-attn: Memory → Message → Last → GRU → Temporal Attention; staleness |
-| 4 | Trening | Raw Message Store, chronologiczny split, negative sampling, batch ≈ 200 |
-| 5 | Porównanie | GRU4Rec / SR-GNN / TGN + metryki Recall@20, MRR@20 |
-| 6 | Plan prac | Pipeline → 3 modele → ewaluacja w Colab / PyG |
-
----
-
-## 7. Ryzyka i mitigacje
-
-| Ryzyko | Mitigacja |
-|--------|-----------|
-| RAM / czas w Colab | Podpróbkowanie, neighbor sampling \(k=10\), aggregator Last |
-| Wyciek czasowy | Chronologiczny split + Raw Message Store |
-| Niejednoznaczna Category | Embedding / bucketing (S, kategoria, marka, missing) |
-| Zbyt ambitny scope | Najpierw clicks-only; buys jako rozszerzenie |
-
----
-
-## 8. Literatura i odniesienia (skrót)
+## 6. Literatura i odniesienia
 
 - Rossi, E. et al. — *Temporal Graph Networks for Deep Learning on Dynamic Graphs* (TGN, TGN-attn)  
 - Hidasi, B. et al. — *Session-based Recommendations with Recurrent Neural Networks* (GRU4Rec)  
@@ -237,7 +214,7 @@ Priorytet: trójka **GRU4Rec → SR-GNN → TGN**.
 
 ---
 
-## 9. Następne kroki po prezentacji
+## 7. Następne kroki po prezentacji
 
 1. Zaimplementować wspólny pipeline danych w repozytorium.  
 2. Baseline GRU4Rec (szybka walidacja pipeline’u).  
@@ -246,5 +223,3 @@ Priorytet: trójka **GRU4Rec → SR-GNN → TGN**.
 5. Tabela wyników + wykres trade-off jakość vs czas treningu.
 
 ---
-
-*Dokument przygotowany na podstawie zgłoszenia tematu ADM oraz analizy podejścia (TGN, Yoochoose, baselines). Aktualizować wraz z postępem implementacji.*

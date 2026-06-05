@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scr.utlis import get_project_root
+from src.utlis import get_project_root
 
 DATASET_SLUG = "chadgostopp/recsys-challenge-2015"
 NESTED_DATA_DIR = "yoochoose-data"

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import gc
 import json
 import pickle
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +14,8 @@ import pandas as pd
 from src.preprocessing.config import PreprocessConfig
 from src.preprocessing.examples import ExampleBatch
 from src.preprocessing.vocab import ItemVocab
+
+_STREAM_BATCH_SIZE = 100_000
 
 
 def _write_parquet(df: pd.DataFrame, path: Path) -> None:
@@ -23,6 +27,61 @@ def _write_pickle(obj: Any, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as fh:
         pickle.dump(obj, fh, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def _append_parquet(df: pd.DataFrame, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        df.to_parquet(path, index=False, engine="pyarrow", append=True)
+    else:
+        df.to_parquet(path, index=False)
+
+
+def write_examples_streaming(
+    example_iter: Iterator[tuple[dict, dict, dict]],
+    output_dir: Path,
+    export_sequence_models: bool,
+) -> int:
+    """Stream examples to disk in batches (for full challenge_test)."""
+    tgn_path = output_dir / "tgn" / "examples.parquet"
+    gru_path = output_dir / "gru4rec_examples.parquet" if export_sequence_models else None
+    tagnn_path = (
+        output_dir / "tagnn_examples.parquet" if export_sequence_models else None
+    )
+
+    for path in (p for p in (tgn_path, gru_path, tagnn_path) if p is not None):
+        if path.exists():
+            path.unlink()
+
+    gru_rows: list[dict] = []
+    tagnn_rows: list[dict] = []
+    tgn_rows: list[dict] = []
+    total = 0
+
+    def flush() -> None:
+        nonlocal gru_rows, tagnn_rows, tgn_rows
+        if not tgn_rows:
+            return
+        _append_parquet(pd.DataFrame(tgn_rows), tgn_path)
+        if gru_path is not None:
+            _append_parquet(pd.DataFrame(gru_rows), gru_path)
+        if tagnn_path is not None:
+            _append_parquet(pd.DataFrame(tagnn_rows), tagnn_path)
+        gru_rows = []
+        tagnn_rows = []
+        tgn_rows = []
+
+    for gru_row, tagnn_row, tgn_row in example_iter:
+        gru_rows.append(gru_row)
+        tagnn_rows.append(tagnn_row)
+        tgn_rows.append(tgn_row)
+        total += 1
+        if len(tgn_rows) >= _STREAM_BATCH_SIZE:
+            flush()
+
+    flush()
+    gc.collect()
+    return total
 
 
 def write_split_artifacts(
@@ -48,25 +107,10 @@ def write_split_artifacts(
         )
 
 
-def write_challenge_artifacts(
-    examples: ExampleBatch,
-    tgn_events: pd.DataFrame,
-    output_dir: Path,
-    export_sequence_models: bool,
-) -> None:
-    ch_dir = output_dir / "challenge_test"
-    tgn_dir = ch_dir / "tgn"
+def write_challenge_events(tgn_events: pd.DataFrame, output_dir: Path) -> None:
+    tgn_dir = output_dir / "challenge_test" / "tgn"
     tgn_dir.mkdir(parents=True, exist_ok=True)
-
     _write_parquet(tgn_events, tgn_dir / "events.parquet")
-    _write_parquet(examples.tgn, tgn_dir / "examples.parquet")
-
-    if export_sequence_models:
-        _write_parquet(examples.gru4rec, ch_dir / "gru4rec_examples.parquet")
-        _write_pickle(
-            examples.tagnn.to_dict(orient="records"),
-            ch_dir / "tagnn_examples.pkl",
-        )
 
 
 def write_meta(

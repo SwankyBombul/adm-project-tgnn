@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import json
 from pathlib import Path
 from typing import Any
@@ -17,9 +18,13 @@ from src.preprocessing.events import (
     build_item_buckets,
     events_to_tgn_frame,
 )
-from src.preprocessing.examples import build_examples_for_split
+from src.preprocessing.examples import (
+    build_examples_for_split,
+    iter_examples_for_split,
+)
 from src.preprocessing.export import (
-    write_challenge_artifacts,
+    write_challenge_events,
+    write_examples_streaming,
     write_meta,
     write_split_artifacts,
 )
@@ -166,13 +171,15 @@ def run_preprocessing(config: PreprocessConfig) -> Path:
         }
 
     print("Processing challenge test...")
+    empty_buys = buys.iloc[0:0].copy()
+    del clicks, buys, clicks_splits, buys_splits
+    gc.collect()
+
     if config.remove_exact_duplicates:
         test_raw = remove_exact_duplicates(
             test_raw, ["session_id", "item_id", "timestamp"]
         )
     test_raw = add_row_order(test_raw)
-
-    empty_buys = buys.iloc[0:0].copy()
     test_events = build_event_stream(
         test_raw,
         empty_buys,
@@ -183,9 +190,16 @@ def run_preprocessing(config: PreprocessConfig) -> Path:
         include_buys=False,
     )
     test_events = assign_session_idx(test_events, "challenge_test")
-    test_enriched = _attach_click_metadata(test_raw, test_events)
+    tgn_events_frame = events_to_tgn_frame(test_events)
+    write_challenge_events(tgn_events_frame, output_dir)
 
-    challenge_examples = build_examples_for_split(
+    test_enriched = _attach_click_metadata(test_raw, test_events)
+    cold_start_items = int(
+        test_raw.loc[~test_raw["item_id"].isin(known_items), "item_id"].nunique()
+    )
+    n_test_events = len(test_events)
+
+    challenge_example_iter = iter_examples_for_split(
         clicks=test_enriched,
         events=test_events,
         vocab=vocab,
@@ -195,21 +209,20 @@ def run_preprocessing(config: PreprocessConfig) -> Path:
         eval_mode=config.eval_mode,
         is_train=False,
     )
-
-    write_challenge_artifacts(
-        examples=challenge_examples,
-        tgn_events=events_to_tgn_frame(test_events),
-        output_dir=output_dir,
+    n_challenge_examples = write_examples_streaming(
+        challenge_example_iter,
+        output_dir / "challenge_test",
         export_sequence_models=export_sequence,
     )
 
+    del test_raw, test_events, test_enriched, tgn_events_frame
+    gc.collect()
+
     stats["challenge_test_examples"] = {
-        "gru4rec": len(challenge_examples.gru4rec),
-        "tgn": len(challenge_examples.tgn),
-        "events": len(test_events),
-        "cold_start_items": int(
-            test_raw.loc[~test_raw["item_id"].isin(known_items), "item_id"].nunique()
-        ),
+        "gru4rec": n_challenge_examples if export_sequence else 0,
+        "tgn": n_challenge_examples,
+        "events": n_test_events,
+        "cold_start_items": cold_start_items,
     }
 
     write_meta(output_dir, config, vocab, boundary_payload, stats)

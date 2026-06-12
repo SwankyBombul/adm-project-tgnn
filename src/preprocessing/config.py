@@ -6,11 +6,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from src.utlis import get_project_root
-
-# Index conventions (documented in meta.json for model code).
-PAD_IDX = 0
-# Known items use 1..n_items; UNK uses n_items + 1.
+from src.common.constants import PAD_IDX
+from src.common.paths import get_project_root
 
 
 @dataclass
@@ -37,6 +34,22 @@ class PreprocessConfig:
             return "full"
         denom = round(1 / self.subsample_fraction)
         return f"1_{denom}"
+
+    @classmethod
+    def from_yaml(
+        cls,
+        path: str | Path,
+        *,
+        project_root: Path | None = None,
+        **overrides: Any,
+    ) -> PreprocessConfig:
+        """Load preprocessing config from ``config/*.yaml``; ``overrides`` win on conflicts."""
+        from src.config.yaml_loader import load_yaml_file, preprocess_config_kwargs
+
+        data = load_yaml_file(path, project_root=project_root)
+        kwargs = preprocess_config_kwargs(data, project_root=project_root)
+        kwargs.update(overrides)
+        return cls(**kwargs)
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)

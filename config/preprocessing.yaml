@@ -1,0 +1,13 @@
+# Default Yoochoose preprocessing (EDA-aligned)
+paths:
+  raw_dir: data/raw
+  output_root: data/processed
+
+preprocessing:
+  subsample_fraction: 0.03125  # 1/32
+  split_ratios: [0.70, 0.15, 0.15]
+  min_session_clicks: 2
+  remove_exact_duplicates: true
+  merge_consecutive_repeats: false
+  include_buys: false
+  eval_mode: last_click

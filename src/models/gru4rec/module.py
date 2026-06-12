@@ -8,8 +8,9 @@ import lightning.pytorch as pl
 import torch
 from torch import Tensor, nn
 
+from src.evaluation.baselines import evaluate_pop_baseline, popularity_top_k_gru_indices
 from src.evaluation.metrics import DEFAULT_KS, batch_ranking_metrics
-from src.models.gru4rec import GRU4Rec
+from src.models.gru4rec.model import GRU4Rec
 
 
 class GRU4RecLitModule(pl.LightningModule):
@@ -24,9 +25,11 @@ class GRU4RecLitModule(pl.LightningModule):
         pad_idx: int = 0,
         metric_ks: tuple[int, ...] = DEFAULT_KS,
         pop_baseline_metrics: dict[str, float] | None = None,
+        compute_pop_baseline: bool = True,
     ) -> None:
         super().__init__()
         self.save_hyperparameters(ignore=("pop_baseline_metrics",))
+        self.compute_pop_baseline = compute_pop_baseline
         self.model = GRU4Rec(
             num_embeddings=num_embeddings,
             embedding_dim=embedding_dim,
@@ -48,6 +51,21 @@ class GRU4RecLitModule(pl.LightningModule):
         logits = self(item_ids, lengths)
         loss = self.loss_fn(logits, targets)
         return loss, logits, targets
+
+    def on_fit_start(self) -> None:
+        if not self.compute_pop_baseline or self.pop_baseline_metrics:
+            return
+        from src.data_modules.gru4rec import GRU4RecDataModule
+
+        datamodule = self.trainer.datamodule
+        if not isinstance(datamodule, GRU4RecDataModule):
+            return
+        pop_indices = popularity_top_k_gru_indices(datamodule.processed_dir, k=20)
+        self.pop_baseline_metrics = evaluate_pop_baseline(
+            datamodule.val_dataloader(),
+            pop_indices,
+            ks=(5, 10, 20),
+        )
 
     def training_step(
         self,

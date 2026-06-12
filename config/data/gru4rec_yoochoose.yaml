@@ -1,0 +1,7 @@
+# GRU4Rec data module — subsample 1/32 clicks-only variant
+data:
+  class_path: src.data_modules.gru4rec.GRU4RecDataModule
+  init_args:
+    processed_dir: data/processed/subsample_1_32_clicks_only
+    batch_size: 256
+    num_workers: 2

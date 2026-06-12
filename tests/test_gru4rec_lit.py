@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch
 
-from src.training.lit_modules.gru4rec import GRU4RecLitModule
+from src.models.gru4rec import GRU4RecLitModule
 
 
 def test_gru4rec_lit_module_forward_step() -> None:

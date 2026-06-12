@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.preprocessing.config import PAD_IDX
+from src.common.constants import PAD_IDX
 
 
 @dataclass

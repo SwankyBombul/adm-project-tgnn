@@ -1,0 +1,7 @@
+# Full GRU4Rec baseline run (W&B, 10 epochs)
+trainer:
+  max_epochs: 10
+  logger:
+    init_args:
+      name: gru4rec-baseline
+      tags: [baseline, gru4rec]

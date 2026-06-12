@@ -1,12 +1,31 @@
+# Python / uv
 .venv/
 __pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
-/data/
-!src/data/
-*.dat
-.ipynb_checkpoints/
+# IDE / local tooling
 .env
 .kaggle/
 .cursor/
 .cursorrules
-.pytest_cache/
+.ipynb_checkpoints/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Data (large files, local only)
+/data/
+*.dat
+
+# Training artifacts (checkpoints, W&B, Lightning logs)
+/checkpoints/
+/lightning_logs/
+wandb/
+*.ckpt
+
+# Local Windows helper scripts (MCP dev); keep scripts/*.py in repo
+scripts/*.ps1

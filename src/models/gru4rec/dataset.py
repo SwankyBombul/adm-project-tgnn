@@ -11,7 +11,7 @@ import torch
 from torch import Tensor
 from torch.utils.data import Dataset
 
-from src.preprocessing.config import PAD_IDX
+from src.common.constants import PAD_IDX
 
 HistoryLike = Sequence[int] | np.ndarray
 

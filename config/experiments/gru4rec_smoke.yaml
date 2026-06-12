@@ -1,0 +1,16 @@
+# Quick smoke run (CPU, 1 epoch, no W&B) — use with default + data + model configs
+trainer:
+  max_epochs: 1
+  accelerator: cpu
+  logger: false
+  callbacks: []
+
+data:
+  init_args:
+    batch_size: 64
+    num_workers: 0
+
+model:
+  init_args:
+    hidden_dim: 64
+    embedding_dim: 64

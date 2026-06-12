@@ -1,0 +1,11 @@
+# GRU4Rec LightningModule (num_embeddings linked from data module)
+model:
+  class_path: src.models.gru4rec.module.GRU4RecLitModule
+  init_args:
+    num_embeddings: 0
+    learning_rate: 0.001
+    embedding_dim: 128
+    hidden_dim: 128
+    num_layers: 1
+    dropout: 0.0
+    compute_pop_baseline: true

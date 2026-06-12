@@ -85,10 +85,12 @@ Pipeline w `src/preprocessing/` przygotowuje dane pod **GRU4Rec**, **TAGNN** i *
 | GRU4Rec / TAGNN | tylko **kliknięcia** |
 | TGN | wariant **clicks-only** lub **clicks + buys** (osobne katalogi wyjściowe) |
 
+Parametry preprocessingu trzymamy w **`config/preprocessing.yaml`** (sekcje `paths`, `preprocessing`). CLI nadpisuje YAML.
+
 **Wariant clicks-only** (GRU4Rec, TAGNN, TGN bez zakupów):
 
 ```powershell
-uv run python -m src.preprocessing --force
+uv run python -m src.preprocessing --config config/preprocessing.yaml --force
 ```
 
 **Wariant z buys** (tylko strumień TGN; GRU4Rec/TAGNN korzystają z `clicks_only`):
@@ -133,16 +135,24 @@ adm-project-tgnn/
 │   ├── first_presentation.md
 │   ├── adm_projekt_wm_mo.docx
 │   └── projekt_info.pdf
-├── notebooks/
-│   └── eda_yoochose.ipynb        # EDA + wnioski do preprocessingu
+├── notebooks/                    # EDA / walidacja preprocessingu (colab — później)
+│   ├── eda_yoochose.ipynb
+│   └── validate_preprocessing.ipynb
+├── config/                       # YAML: preprocessing, trening GRU4Rec
 ├── scripts/
 │   └── download_raw_data.py      # pobieranie danych z Kaggle → data/raw
 ├── src/
+│   ├── common/                   # ścieżki, stałe (get_project_root, PAD_IDX)
+│   ├── artifacts/                # odczyt meta.json i ścieżek do processed/
 │   ├── preprocessing/            # pipeline danych (load → export)
-│   ├── __init__.py
-│   └── utlis.py                  # narzędzia wspólne (get_project_root)
-├── tests/
-│   └── test_preprocessing.py     # testy jednostkowe helperów
+│   ├── models/
+│   │   └── gru4rec/              # model + dataset + LightningModule
+│   ├── data_modules/             # LightningDataModule (GRU4Rec, …)
+│   ├── main.py                   # LightningCLI: fit / validate / test
+│   ├── runtime/                  # Colab (Drive, unpack)
+│   ├── evaluation/               # metryki i baseline'y
+│   └── config/                   # wandb defaults, preprocessing YAML loader
+├── tests/                        # testy jednostkowe
 ├── data/
 │   ├── raw/                      # surowe pliki .dat (lokalnie, po download)
 │   └── processed/                # wynik preprocessingu (lokalnie)
@@ -159,20 +169,80 @@ Projekt używa **uv**. Główne pakiety (`pyproject.toml`):
 | Obszar | Pakiety |
 |--------|---------|
 | Dane / API | `kaggle`, `python-dotenv` |
-| Analiza i ML | `numpy`, `pandas`, `pyarrow`, `scikit-learn`, `torch` |
-| Eksperymenty | `jupyter`, `matplotlib`, `ipykernel` |
+| Analiza i ML | `numpy`, `pandas`, `pyarrow`, `scikit-learn`, `torch` (CUDA 12.6 na Linux/Windows) |
+| Eksperymenty | `jupyter`, `matplotlib`, `ipykernel`, `lightning`, `wandb` |
+
+**PyTorch + CUDA:** na Windows i Linux `uv sync` instaluje `torch` z indeksu PyTorch (`cu126`). macOS dostaje build CPU z PyPI. Po instalacji sprawdź GPU:
+
+```powershell
+uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+```
+
+Trening z `accelerator: gpu` (domyślnie w `config/default.yaml`) używa GPU, gdy CUDA jest dostępne.
 
 ## Narzędzia w kodzie
 
-**`get_project_root()`** — `src/utlis.py`
+**`get_project_root()`** — `src/common/paths.py`
 
 Zwraca absolutną ścieżkę do roota repozytorium. Używana w skrypcie pobierania danych i w notebooku EDA:
 
 ```python
-from src.utlis import get_project_root
+from src.common.paths import get_project_root
 
 raw_dir = get_project_root() / "data" / "raw"
 ```
+
+Konwencje pakietów (`src/common/__init__.py`): preprocessing zapisuje artefakty na dysk, reszta kodu czyta je przez `src/artifacts/`.
+
+## Konfiguracja YAML (`config/`)
+
+Eksperymenty i domyślne parametry trzymamy w plikach YAML w katalogu `config/`:
+
+| Plik | Opis |
+|------|------|
+| `config/preprocessing.yaml` | subsample, split, ścieżki raw/processed |
+| `config/default.yaml` | trainer, callbacks, wandb (LightningCLI) |
+| `config/data/gru4rec_yoochoose.yaml` | LightningDataModule — ścieżki i batch |
+| `config/model/gru4rec.yaml` | LightningModule — architektura i lr |
+| `config/experiments/gru4rec_baseline.yaml` | baseline (W&B name, 10 epok) |
+| `config/experiments/gru4rec_smoke.yaml` | smoke (CPU, 1 epoka, bez W&B) |
+
+**Preprocessing:**
+
+```powershell
+uv run python -m src.preprocessing --config config/preprocessing.yaml --force
+```
+
+**Trening GRU4Rec (LightningCLI):**
+
+```powershell
+# baseline
+uv run python -m src.main fit `
+  -c config/data/gru4rec_yoochoose.yaml `
+  -c config/model/gru4rec.yaml `
+  -c config/experiments/gru4rec_baseline.yaml
+
+# smoke (CPU, 1 epoka, bez W&B)
+uv run python -m src.main fit `
+  -c config/data/gru4rec_yoochoose.yaml `
+  -c config/model/gru4rec.yaml `
+  -c config/experiments/gru4rec_smoke.yaml
+```
+
+Walidacja:
+
+```powershell
+uv run python -m src.main validate `
+  -c config/data/gru4rec_yoochoose.yaml `
+  -c config/model/gru4rec.yaml `
+  --ckpt_path best
+```
+
+`best` / `last` szukają najnowszego pliku `.ckpt` w `checkpoints/gru4rec/` (przydatne po osobnym `fit`). Możesz też podać pełną ścieżkę, np. `checkpoints/gru4rec/adm-project-tgnn/by69hj21/checkpoints/best-epoch_004.ckpt`.
+
+**Colab** — `prepare_colab_session(drive_dir, run_name=...)` rozpakowuje dane, potem `python -m src.main fit ...` z `data.init_args.processed_dir` wskazującym na lokalny unpack.
+
+Ścieżki w YAML są względne do roota repozytorium (`data/processed`, `data/raw`).
 
 ## Stan prac
 
@@ -182,9 +252,10 @@ raw_dir = get_project_root() / "data" / "raw"
 | Pobieranie danych z Kaggle | `scripts/download_raw_data.py` |
 | EDA (jakość, next-item, kaskadowość, category, buys, cold start, TGN) | `notebooks/eda_yoochose.ipynb` |
 | Preprocessing (subsample, split, vocab, eksport GRU/TAGNN/TGN) | `src/preprocessing/` — `uv run python -m src.preprocessing` |
-| TGN: porównanie wariantów clicks-only vs clicks+buys | planowane (dwa przebiegi preprocessingu) |
-| Implementacja modeli (GRU4Rec → TAGNN → TGN) | planowane |
-| Ewaluacja (Recall@20, MRR@20, POP@20 baseline) | planowane |
+| Baseline GRU4Rec (LightningCLI, W&B, checkpoint `best`) | `src/main.py`, `config/`, `src/models/gru4rec/` |
+| Metryki rankingowe + POP@20 baseline | `src/evaluation/` |
+| TAGNN → TGN | planowane |
+| Notebooki Colab / trening interaktywny | planowane (po przebudowie) |
 
 ## Licencja i dane
 

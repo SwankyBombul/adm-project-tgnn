@@ -23,8 +23,30 @@ class DriveLayoutCheck:
     errors: list[str]
 
 
+def _drive_layout_hints(drive_project_dir: Path) -> list[str]:
+    hints: list[str] = []
+    if not is_colab():
+        return hints
+
+    if not DEFAULT_DRIVE_MOUNT.is_dir():
+        hints.append(
+            "Google Drive is not mounted yet. "
+            "Call mount_google_drive() before checking paths."
+        )
+        return hints
+
+    if not drive_project_dir.is_dir() and DEFAULT_MYDRIVE.is_dir():
+        folders = sorted(path.name for path in DEFAULT_MYDRIVE.iterdir() if path.is_dir())
+        preview = ", ".join(folders[:12]) or "(no folders found)"
+        hints.append(f"Top-level folders in MyDrive: {preview}")
+        hints.append(
+            "Update DRIVE_PROJECT_DIR in the notebook config cell to match your folder."
+        )
+    return hints
+
+
 def check_drive_layout(drive_project_dir: Path) -> DriveLayoutCheck:
-    """Validate the expected Google Drive project folder before training."""
+    """Validate the expected Google Drive project folder (call after drive.mount)."""
     drive_project_dir = Path(drive_project_dir)
     processed_zip = drive_project_dir / "data" / PROCESSED_ZIP_NAME
     checkpoint_root = drive_project_dir / "checkpoints"
@@ -37,6 +59,8 @@ def check_drive_layout(drive_project_dir: Path) -> DriveLayoutCheck:
             f"Missing processed archive: {processed_zip} "
             f"(expected data/{PROCESSED_ZIP_NAME} on Drive)."
         )
+
+    errors.extend(_drive_layout_hints(drive_project_dir))
 
     return DriveLayoutCheck(
         drive_project_dir=drive_project_dir,
@@ -106,9 +130,14 @@ def unzip_processed_archive(
 
 
 def prepare_colab_session(config: TrainConfig) -> TrainConfig:
-    """Mount Drive, unpack data to local disk, and ensure checkpoint directory exists."""
+    """Mount Drive, validate layout, unpack data locally, ensure checkpoint dir exists."""
     if config.mount_google_drive and is_colab():
         mount_google_drive()
+
+    if config.drive_project_dir is not None:
+        layout = check_drive_layout(config.drive_project_dir)
+        if not layout.ok:
+            raise FileNotFoundError("Drive layout invalid:\n" + "\n".join(layout.errors))
 
     if config.unpack_processed_zip:
         zip_path = config.processed_zip_path

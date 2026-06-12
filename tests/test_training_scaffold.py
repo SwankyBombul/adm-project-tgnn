@@ -22,6 +22,15 @@ def test_wandb_defaults() -> None:
     assert settings.project == WANDB_PROJECT == "adm-project-tgnn"
 
 
+def test_collect_viewer_entities_from_user_object() -> None:
+    from types import SimpleNamespace
+
+    from src.config.wandb_settings import _collect_viewer_entities
+
+    viewer = SimpleNamespace(username="koostosh", entity="koostosh", teams=[])
+    assert _collect_viewer_entities(viewer) == {"koostosh"}
+
+
 def test_check_drive_layout_missing_zip(tmp_path: Path) -> None:
     project_dir = tmp_path / "drive_project"
     project_dir.mkdir()

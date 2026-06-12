@@ -4,23 +4,73 @@ Projekt z przedmiotu **Advanced Data Mining (ADM)** — rekomendacje sesyjne z w
 
 **Zespół:** Wiktor Małysa (349105), Mikołaj Orzechowski (363917)
 
-Szczegółowy opis problemu, danych i planu eksperymentów: [`docs/first_presentation.md`](docs/first_presentation.md)  
-Notatki / prezentacja: [HackMD](https://hackmd.io/56eeHBjMQfmq4Wh2M82m4A)
+| Link | Opis |
+|------|------|
+| [Weights & Biases](https://wandb.ai/project-nn/adm-project-tgnn) | logi treningów, metryki, porównanie runów |
+| [HackMD — notatki](https://hackmd.io/56eeHBjMQfmq4Wh2M82m4A) | prezentacja / notatki zespołu |
+| [`docs/first_presentation.md`](docs/first_presentation.md) | opis problemu, danych i planu eksperymentów |
+| [Yoochoose na Kaggle](https://www.kaggle.com/datasets/chadgostopp/recsys-challenge-2015) | surowe dane |
 
-## Cel projektu
+---
+
+## Spis treści
+
+- [O projekcie](#o-projekcie)
+- [Pipeline w skrócie](#pipeline-w-skrocie)
+- [Wymagania](#wymagania)
+- [Szybki start (lokalnie)](#szybki-start-lokalnie)
+  - [Pobranie danych](#1-pobranie-surowych-danych)
+  - [EDA](#2-eksploracja-danych-eda)
+  - [Preprocessing](#3-preprocessing)
+- [Trening i eksperymenty](#trening-i-eksperymenty)
+- [Google Colab](#google-colab)
+- [Struktura repozytorium](#struktura-repozytorium)
+- [Środowisko i zależności](#środowisko-i-zależności)
+- [Konfiguracja YAML](#konfiguracja-yaml-config)
+- [Stan prac](#stan-prac)
+- [Licencja i dane](#licencja-i-dane)
+
+---
+
+## O projekcie
 
 - **Zadanie:** next-item prediction w sesji e-commerce (na podstawie dotychczasowych kliknięć przewidzieć następny produkt).
-- **Model główny:** TGN na grafie dynamicznym w czasie ciągłym (sesje ↔ produkty).
-- **Baseline:** modele sekwencyjne z grafowej reprezentacji sesji (np. **TAGNN** — patrz `docs/first_presentation.md`).
-- **Dane:** [Yoochoose na Kaggle](https://www.kaggle.com/datasets/chadgostopp/recsys-challenge-2015).
+- **Model główny (docelowy):** TGN na grafie dynamicznym w czasie ciągłym (sesje ↔ produkty).
+- **Baseline:** modele sekwencyjne z grafowej reprezentacji sesji — na start **GRU4Rec**, później **TAGNN** (szczegóły w `docs/first_presentation.md`).
+- **Dane:** kliknięcia, zakupy i test challenge'u Yoochoose; po EDA pracujemy na chronologicznym subsample **1/32** pełnych sesji.
+
+## Pipeline w skrócie
+
+Krótki przegląd dla kogoś, kto wchodzi w projekt po raz pierwszy:
+
+```text
+Kaggle (.dat)  →  download_raw_data.py  →  data/raw/
+       ↓
+notebooks/eda_yoochose.ipynb  →  decyzje o subsample, splicie, metrykach
+       ↓
+src/preprocessing/  →  data/processed/  (GRU4Rec, TAGNN, TGN w jednym przebiegu)
+       ↓
+src/main.py (LightningCLI)  →  trening GRU4Rec  →  checkpoints/ + W&B
+       ↓
+(planowane) TAGNN → TGN
+```
+
+1. **Surowe dane** pobieramy skryptem z Kaggle (`scripts/download_raw_data.py`) — nie są w gicie.
+2. **EDA** w notebooku ustaliliśmy m.in. subsample 1/32, split 70/15/15 po czasie, sliding window na trainie i ostatni klik na val/test.
+3. **Preprocessing** (`uv run python -m src.preprocessing`) zapisuje gotowe pliki pod trzy modele; kontrakt jest w `meta.json`.
+4. **Trening** idzie przez PyTorch Lightning CLI (`src/main.py`) z konfiguracją YAML; logi trafiają na [W&B](https://wandb.ai/project-nn/adm-project-tgnn).
+5. **Colab** — osobna ścieżka na GPU bez trzymania dużych plików lokalnie (szczegóły w [sekcji Colab](#google-colab)).
+
+---
 
 ## Wymagania
 
 - Python **3.12** (pin w `.python-version`)
 - [uv](https://docs.astral.sh/uv/) — środowisko wirtualne i zależności
-- Konto Kaggle + klucz API (do pobrania danych)
+- Konto Kaggle + klucz API (do pobrania danych lokalnie)
+- Konto w zespole W&B **project-nn** (do logowania eksperymentów; poproś o zaproszenie, jeśli go nie masz)
 
-## Szybki start
+## Szybki start (lokalnie)
 
 ```powershell
 cd adm-project-tgnn
@@ -70,6 +120,8 @@ Zakres analizy:
 - cold start w `test.dat`, struktura pod grafy (TGN, SR-GNN/TAGNN),
 - metryki baseline (POP@20),
 - **wnioski i rekomendacje preprocessingu** (ostatnia sekcja notebooka).
+
+Walidację wyjścia preprocessingu można sprawdzić w [`notebooks/validate_preprocessing.ipynb`](notebooks/validate_preprocessing.ipynb).
 
 ### 3. Preprocessing
 
@@ -127,6 +179,109 @@ data/processed/
 
 Konwencje indeksów i kontraktów wejściowych modeli są opisane w `meta.json` oraz w docstringu `src/preprocessing/config.py`.
 
+---
+
+## Trening i eksperymenty
+
+Trening baseline **GRU4Rec** uruchamiamy przez **LightningCLI** (`src/main.py`). Domyślny logger to **WandbLogger** — entity `project-nn`, project `adm-project-tgnn`.
+
+**Dashboard zespołu:** [https://wandb.ai/project-nn/adm-project-tgnn](https://wandb.ai/project-nn/adm-project-tgnn)
+
+```powershell
+# baseline (GPU, 10 epok, logi na W&B)
+uv run python -m src.main fit `
+  -c config/data/gru4rec_yoochoose.yaml `
+  -c config/model/gru4rec.yaml `
+  -c config/experiments/gru4rec_baseline.yaml
+
+# smoke (CPU, 1 epoka, bez W&B)
+uv run python -m src.main fit `
+  -c config/data/gru4rec_yoochoose.yaml `
+  -c config/model/gru4rec.yaml `
+  -c config/experiments/gru4rec_smoke.yaml
+```
+
+Walidacja po treningu:
+
+```powershell
+uv run python -m src.main validate `
+  -c config/data/gru4rec_yoochoose.yaml `
+  -c config/model/gru4rec.yaml `
+  --ckpt_path best
+```
+
+`best` / `last` szukają najnowszego pliku `.ckpt` w `checkpoints/gru4rec/`. Możesz też podać pełną ścieżkę do checkpointu.
+
+Checkpointy zapisuje `ModelCheckpoint` (monitor: `val/recall@20`). Metryki rankingowe (`recall@k`, `mrr@k`, `ndcg@k`) i baseline POP@20 są w `src/evaluation/`.
+
+---
+
+## Google Colab
+
+Trening na GPU w Colabie jest osobną ścieżką od lokalnej — duże pliki trzymamy na **Google Drive**, a w runtime Colaba rozpakowujemy je lokalnie (szybszy I/O niż czytanie wprost z Drive).
+
+### Co jest już gotowe
+
+| Element | Gdzie | Po co |
+|---------|-------|-------|
+| Helpery sesji Colab | `src/runtime/colab.py` | mount Drive, walidacja folderu, unpack `processed.zip` |
+| `is_colab()` | `src/runtime/colab.py` | wykrywa środowisko Colab (np. `num_workers=0` w DataModule) |
+| Ustawienia W&B | `src/config/wandb_settings.py` | stałe entity/project, `login_wandb()`, `verify_wandb_access()` |
+| Testy runtime | `tests/test_training_scaffold.py` | layout Drive, unpack archiwum, domyślne W&B |
+
+### Oczekiwany układ na Google Drive
+
+W folderze projektu na Drive (np. `MyDrive/adm-project-tgnn/`):
+
+```text
+adm-project-tgnn/          ← DRIVE_PROJECT_DIR
+├── data/
+│   └── processed.zip      ← spakowany katalog data/processed/ z lokalnego preprocessingu
+└── checkpoints/           ← tworzy się przy treningu (np. gru4rec/<run_name>/)
+```
+
+`processed.zip` tworzysz lokalnie po preprocessingu — spakuj cały katalog `data/processed/` (z wariantem `subsample_1_32_clicks_only` itd.) i wrzuć na Drive.
+
+### Typowy flow w notebooku Colab
+
+```python
+from src.runtime import prepare_colab_session
+from src.config import login_wandb, verify_wandb_access
+
+# 1. Sesja: mount Drive, sprawdzenie ścieżek, unpack do /content/.../data/processed
+session = prepare_colab_session(
+    "/content/drive/MyDrive/adm-project-tgnn",  # dostosuj do swojego folderu
+    run_name="gru4rec-baseline",
+)
+
+# 2. Logowanie W&B (w Colabie często interaktywnie)
+login_wandb()
+verify_wandb_access()  # upewnia się, że masz dostęp do project-nn/adm-project-tgnn
+
+# 3. Trening — processed_dir wskazuje na lokalny unpack, nie na Drive
+# !python -m src.main fit \
+#   -c config/data/gru4rec_yoochoose.yaml \
+#   -c config/model/gru4rec.yaml \
+#   -c config/experiments/gru4rec_baseline.yaml \
+#   --data.init_args.processed_dir {session.local_processed_root}/subsample_1_32_clicks_only
+```
+
+`prepare_colab_session()`:
+
+1. montuje Google Drive (w Colabie),
+2. sprawdza, czy istnieje `data/processed.zip`,
+3. rozpakowuje archiwum do lokalnego `data/processed/` w runtime,
+4. zakłada katalog checkpointów na Drive: `checkpoints/<model>/<run_name>/`.
+
+### Co jest jeszcze planowane
+
+- dedykowany **notebook treningowy** w Colab (obecnie infrastruktura jest w `src/runtime/`, uruchomienie przez komórki jak wyżej),
+- analogiczny flow pod TAGNN i TGN.
+
+Notebooki w `notebooks/` (`eda_yoochose`, `validate_preprocessing`) służą głównie do **analizy i walidacji danych** — można je otworzyć w Colabie, ale pełny pipeline treningowy opisany jest w tej sekcji.
+
+---
+
 ## Struktura repozytorium
 
 ```text
@@ -135,7 +290,7 @@ adm-project-tgnn/
 │   ├── first_presentation.md
 │   ├── adm_projekt_wm_mo.docx
 │   └── projekt_info.pdf
-├── notebooks/                    # EDA / walidacja preprocessingu (colab — później)
+├── notebooks/                    # EDA i walidacja preprocessingu
 │   ├── eda_yoochose.ipynb
 │   └── validate_preprocessing.ipynb
 ├── config/                       # YAML: preprocessing, trening GRU4Rec
@@ -149,7 +304,7 @@ adm-project-tgnn/
 │   │   └── gru4rec/              # model + dataset + LightningModule
 │   ├── data_modules/             # LightningDataModule (GRU4Rec, …)
 │   ├── main.py                   # LightningCLI: fit / validate / test
-│   ├── runtime/                  # Colab (Drive, unpack)
+│   ├── runtime/                  # Colab (Drive, unpack, is_colab)
 │   ├── evaluation/               # metryki i baseline'y
 │   └── config/                   # wandb defaults, preprocessing YAML loader
 ├── tests/                        # testy jednostkowe
@@ -161,6 +316,22 @@ adm-project-tgnn/
 ├── uv.lock
 └── README.md
 ```
+
+### Narzędzia w kodzie
+
+**`get_project_root()`** — `src/common/paths.py`
+
+Zwraca absolutną ścieżkę do roota repozytorium. Używana w skrypcie pobierania danych i w notebookach:
+
+```python
+from src.common.paths import get_project_root
+
+raw_dir = get_project_root() / "data" / "raw"
+```
+
+Konwencje pakietów (`src/common/__init__.py`): preprocessing zapisuje artefakty na dysk, reszta kodu czyta je przez `src/artifacts/`.
+
+---
 
 ## Środowisko i zależności
 
@@ -180,19 +351,7 @@ uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available
 
 Trening z `accelerator: gpu` (domyślnie w `config/default.yaml`) używa GPU, gdy CUDA jest dostępne.
 
-## Narzędzia w kodzie
-
-**`get_project_root()`** — `src/common/paths.py`
-
-Zwraca absolutną ścieżkę do roota repozytorium. Używana w skrypcie pobierania danych i w notebooku EDA:
-
-```python
-from src.common.paths import get_project_root
-
-raw_dir = get_project_root() / "data" / "raw"
-```
-
-Konwencje pakietów (`src/common/__init__.py`): preprocessing zapisuje artefakty na dysk, reszta kodu czyta je przez `src/artifacts/`.
+---
 
 ## Konfiguracja YAML (`config/`)
 
@@ -207,42 +366,9 @@ Eksperymenty i domyślne parametry trzymamy w plikach YAML w katalogu `config/`:
 | `config/experiments/gru4rec_baseline.yaml` | baseline (W&B name, 10 epok) |
 | `config/experiments/gru4rec_smoke.yaml` | smoke (CPU, 1 epoka, bez W&B) |
 
-**Preprocessing:**
-
-```powershell
-uv run python -m src.preprocessing --config config/preprocessing.yaml --force
-```
-
-**Trening GRU4Rec (LightningCLI):**
-
-```powershell
-# baseline
-uv run python -m src.main fit `
-  -c config/data/gru4rec_yoochoose.yaml `
-  -c config/model/gru4rec.yaml `
-  -c config/experiments/gru4rec_baseline.yaml
-
-# smoke (CPU, 1 epoka, bez W&B)
-uv run python -m src.main fit `
-  -c config/data/gru4rec_yoochoose.yaml `
-  -c config/model/gru4rec.yaml `
-  -c config/experiments/gru4rec_smoke.yaml
-```
-
-Walidacja:
-
-```powershell
-uv run python -m src.main validate `
-  -c config/data/gru4rec_yoochoose.yaml `
-  -c config/model/gru4rec.yaml `
-  --ckpt_path best
-```
-
-`best` / `last` szukają najnowszego pliku `.ckpt` w `checkpoints/gru4rec/` (przydatne po osobnym `fit`). Możesz też podać pełną ścieżkę, np. `checkpoints/gru4rec/adm-project-tgnn/by69hj21/checkpoints/best-epoch_004.ckpt`.
-
-**Colab** — `prepare_colab_session(drive_dir, run_name=...)` rozpakowuje dane, potem `python -m src.main fit ...` z `data.init_args.processed_dir` wskazującym na lokalny unpack.
-
 Ścieżki w YAML są względne do roota repozytorium (`data/processed`, `data/raw`).
+
+---
 
 ## Stan prac
 
@@ -251,11 +377,17 @@ uv run python -m src.main validate `
 | Konfiguracja projektu (`uv`, Python 3.12, zależności) | gotowe |
 | Pobieranie danych z Kaggle | `scripts/download_raw_data.py` |
 | EDA (jakość, next-item, kaskadowość, category, buys, cold start, TGN) | `notebooks/eda_yoochose.ipynb` |
-| Preprocessing (subsample, split, vocab, eksport GRU/TAGNN/TGN) | `src/preprocessing/` — `uv run python -m src.preprocessing` |
+| Walidacja preprocessingu | `notebooks/validate_preprocessing.ipynb` |
+| Preprocessing (subsample, split, vocab, eksport GRU/TAGNN/TGN) | `src/preprocessing/` |
 | Baseline GRU4Rec (LightningCLI, W&B, checkpoint `best`) | `src/main.py`, `config/`, `src/models/gru4rec/` |
 | Metryki rankingowe + POP@20 baseline | `src/evaluation/` |
+| Infrastruktura Colab (Drive, unpack, W&B helpers) | `src/runtime/`, `src/config/wandb_settings.py` |
+| Notebook treningowy Colab | planowane |
 | TAGNN → TGN | planowane |
-| Notebooki Colab / trening interaktywny | planowane (po przebudowie) |
+
+Wyniki treningów GRU4Rec: [W&B — adm-project-tgnn](https://wandb.ai/project-nn/adm-project-tgnn).
+
+---
 
 ## Licencja i dane
 

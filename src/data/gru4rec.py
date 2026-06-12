@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -11,6 +12,15 @@ from torch import Tensor
 from torch.utils.data import Dataset
 
 from src.preprocessing.config import PAD_IDX
+
+HistoryLike = Sequence[int] | np.ndarray
+
+
+def _as_int_list(history: HistoryLike) -> list[int]:
+    """Normalize parquet / numpy history values to a plain Python list."""
+    if isinstance(history, np.ndarray):
+        return history.astype(np.int64, copy=False).tolist()
+    return [int(item) for item in history]
 
 
 class GRU4RecDataset(Dataset):
@@ -27,20 +37,21 @@ class GRU4RecDataset(Dataset):
         return len(self._targets)
 
     def __getitem__(self, index: int) -> tuple[list[int], int]:
-        return self._history[index], int(self._targets[index])
+        return _as_int_list(self._history[index]), int(self._targets[index])
 
 
 def gru4rec_collate_fn(
-    batch: list[tuple[list[int], int]],
+    batch: list[tuple[HistoryLike, int]],
 ) -> tuple[Tensor, Tensor, Tensor]:
     """Pad variable-length histories; return (padded, lengths, targets)."""
     histories, targets = zip(*batch, strict=True)
-    lengths = torch.tensor([len(history) for history in histories], dtype=torch.long)
+    history_lists = [_as_int_list(history) for history in histories]
+    lengths = torch.tensor([len(history) for history in history_lists], dtype=torch.long)
     max_len = int(lengths.max().item()) if len(lengths) else 0
 
     padded = torch.full((len(batch), max_len), PAD_IDX, dtype=torch.long)
-    for row_idx, history in enumerate(histories):
-        if history:
+    for row_idx, history in enumerate(history_lists):
+        if len(history) > 0:
             padded[row_idx, : len(history)] = torch.tensor(history, dtype=torch.long)
 
     target_tensor = torch.tensor(targets, dtype=torch.long)

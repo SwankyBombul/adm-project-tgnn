@@ -6,6 +6,7 @@ import json
 import zipfile
 from pathlib import Path
 
+import numpy as np
 import torch
 
 from src.colab.setup import unzip_processed_archive
@@ -66,6 +67,16 @@ def test_unzip_processed_archive_with_processed_prefix(tmp_path: Path) -> None:
     extracted = unzip_processed_archive(zip_path, extract_parent=tmp_path / "local_data")
     meta = json.loads((extracted / "subsample_1_32_clicks_only" / "meta.json").read_text())
     assert meta["ok"] is True
+
+
+def test_gru4rec_collate_handles_numpy_histories() -> None:
+    batch = [(np.array([1, 2], dtype=np.int64), 3), (np.array([4], dtype=np.int64), 5)]
+    padded, lengths, targets = gru4rec_collate_fn(batch)
+
+    assert padded[0].tolist() == [1, 2]
+    assert padded[1].tolist() == [4, 0]
+    assert lengths.tolist() == [2, 1]
+    assert targets.tolist() == [3, 5]
 
 
 def test_gru4rec_collate_pads_with_zero() -> None:

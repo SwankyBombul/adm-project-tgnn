@@ -1,13 +1,11 @@
-"""Training loops, checkpointing, and experiment logging."""
+"""Training with PyTorch Lightning."""
 
-from src.training.checkpoints import load_checkpoint, save_checkpoint
-from src.training.loop import TrainLoop
-from src.training.wandb_logger import WandbLogger, init_wandb
+from src.training.lit_modules.gru4rec import GRU4RecLitModule
+from src.training.train_gru4rec import train_gru4rec
+from src.training.trainer_factory import build_lightning_trainer
 
 __all__ = [
-    "TrainLoop",
-    "WandbLogger",
-    "init_wandb",
-    "load_checkpoint",
-    "save_checkpoint",
+    "GRU4RecLitModule",
+    "build_lightning_trainer",
+    "train_gru4rec",
 ]

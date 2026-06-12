@@ -41,13 +41,19 @@ class TrainConfig:
     checkpoint_every_epochs: int = 1
     keep_last_n_checkpoints: int = 3
 
-    # Training (defaults are placeholders — tune per model)
+    # Training
     seed: int = 42
     device: str = "cuda"
     batch_size: int = 256
     num_epochs: int = 10
     learning_rate: float = 1e-3
     num_workers: int = 2
+    embedding_dim: int = 128
+    hidden_dim: int = 128
+    num_layers: int = 1
+    dropout: float = 0.0
+    checkpoint_monitor: str = "val/recall@20"
+    early_stopping_patience: int | None = 3
 
     # Weights & Biases
     wandb_enabled: bool = True

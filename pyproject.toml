@@ -19,6 +19,7 @@ dependencies = [
     "wandb>=0.19.0",
     "cursor-notebook-mcp",
     "pytest",
+    "lightning>=2.6.5",
 ]
 
 [project.scripts]

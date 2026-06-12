@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 
-from dataclasses import dataclass
+from src.common.paths import get_project_root
 
-from src.config.train_config import PROCESSED_ZIP_NAME, TrainConfig
-from src.utlis import get_project_root
-
+PROCESSED_ZIP_NAME = "processed.zip"
 DEFAULT_DRIVE_MOUNT = Path("/content/drive")
 DEFAULT_MYDRIVE = DEFAULT_DRIVE_MOUNT / "MyDrive"
 
@@ -21,6 +20,15 @@ class DriveLayoutCheck:
     checkpoint_root: Path
     ok: bool
     errors: list[str]
+
+
+@dataclass
+class ColabSession:
+    """Paths after mounting Drive and unpacking data locally in Colab."""
+
+    drive_project_dir: Path
+    local_processed_root: Path
+    checkpoint_dir: Path
 
 
 def _drive_layout_hints(drive_project_dir: Path) -> list[str]:
@@ -96,13 +104,7 @@ def unzip_processed_archive(
     *,
     extract_parent: Path | None = None,
 ) -> Path:
-    """Unpack ``processed.zip`` and return the local ``processed/`` directory.
-
-    Expects the archive to contain a top-level ``processed/`` folder (standard
-    ``zip -r processed.zip processed`` layout). If the archive root already
-    looks like processed output (``meta.json`` or variant subfolders), files are
-    placed under ``extract_parent/processed/``.
-    """
+    """Unpack ``processed.zip`` and return the local ``processed/`` directory."""
     if not zip_path.is_file():
         raise FileNotFoundError(f"Processed archive not found: {zip_path}")
 
@@ -129,32 +131,39 @@ def unzip_processed_archive(
     return processed_dir
 
 
-def prepare_colab_session(config: TrainConfig) -> TrainConfig:
+def prepare_colab_session(
+    drive_project_dir: str | Path,
+    *,
+    run_name: str = "default",
+    model_name: str = "gru4rec",
+    mount_drive: bool = True,
+    unpack_zip: bool = True,
+) -> ColabSession:
     """Mount Drive, validate layout, unpack data locally, ensure checkpoint dir exists."""
-    if config.mount_google_drive and is_colab():
+    drive_project_dir = Path(drive_project_dir)
+    checkpoint_dir = drive_project_dir / "checkpoints" / model_name / run_name
+
+    if mount_drive and is_colab():
         mount_google_drive()
 
-    if config.drive_project_dir is not None:
-        layout = check_drive_layout(config.drive_project_dir)
-        if not layout.ok:
-            raise FileNotFoundError("Drive layout invalid:\n" + "\n".join(layout.errors))
+    layout = check_drive_layout(drive_project_dir)
+    if not layout.ok:
+        raise FileNotFoundError("Drive layout invalid:\n" + "\n".join(layout.errors))
 
-    if config.unpack_processed_zip:
-        zip_path = config.processed_zip_path
-        if zip_path is None:
-            if is_colab():
-                raise ValueError(
-                    "unpack_processed_zip=True requires drive_project_dir "
-                    "(path to data/processed.zip on Drive)."
-                )
-        elif zip_path.is_file():
-            local_processed = unzip_processed_archive(zip_path)
-            config.data_root = local_processed
-        elif is_colab():
+    zip_path = layout.processed_zip
+    if unpack_zip:
+        if not zip_path.is_file():
             raise FileNotFoundError(
                 f"Processed archive not found on Drive: {zip_path}. "
                 "Upload data/processed.zip to the project Drive folder."
             )
+        local_processed_root = unzip_processed_archive(zip_path)
+    else:
+        local_processed_root = get_project_root() / "data" / "processed"
 
-    config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    return config
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    return ColabSession(
+        drive_project_dir=drive_project_dir,
+        local_processed_root=local_processed_root,
+        checkpoint_dir=checkpoint_dir,
+    )

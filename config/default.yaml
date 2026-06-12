@@ -1,0 +1,33 @@
+# Trainer defaults (LightningCLI). Layer with config/data/*.yaml and config/model/*.yaml.
+seed_everything: 42
+ignore_warnings: false
+
+trainer:
+  max_epochs: 10
+  accelerator: gpu
+  devices: 1
+  enable_progress_bar: true
+  log_every_n_steps: 50
+  default_root_dir: checkpoints/gru4rec
+
+  logger:
+    class_path: lightning.pytorch.loggers.WandbLogger
+    init_args:
+      project: adm-project-tgnn
+      entity: project-nn
+      save_dir: checkpoints/gru4rec
+      log_model: false
+
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        filename: best-epoch_{epoch:03d}-recall20_{val/recall@20:.4f}
+        monitor: val/recall@20
+        mode: max
+        save_top_k: 1
+        save_last: false
+    - class_path: lightning.pytorch.callbacks.EarlyStopping
+      init_args:
+        monitor: val/recall@20
+        mode: max
+        patience: 3

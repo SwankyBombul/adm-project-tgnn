@@ -14,10 +14,16 @@ def main() -> None:
         description="Preprocess Yoochoose for GRU4Rec, TAGNN, and TGN."
     )
     parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="YAML preprocessing config (e.g. config/preprocessing.yaml).",
+    )
+    parser.add_argument(
         "--fraction",
         type=float,
-        default=1 / 32,
-        help="Session subsample fraction (default: 1/32).",
+        default=None,
+        help="Session subsample fraction (default: 1/32, or value from YAML).",
     )
     parser.add_argument(
         "--include-buys",
@@ -43,10 +49,17 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    config = PreprocessConfig(
-        subsample_fraction=args.fraction,
-        include_buys=args.include_buys,
-    )
+    if args.config is not None:
+        config = PreprocessConfig.from_yaml(args.config)
+    else:
+        config = PreprocessConfig(
+            subsample_fraction=args.fraction if args.fraction is not None else 1 / 32,
+        )
+
+    if args.fraction is not None:
+        config.subsample_fraction = args.fraction
+    if args.include_buys:
+        config.include_buys = True
     if args.raw_dir is not None:
         config.raw_dir = args.raw_dir
     if args.output_root is not None:

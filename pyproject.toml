@@ -17,13 +17,33 @@ dependencies = [
     "torch>=2.12.0",
     "tqdm>=4.67.1",
     "wandb>=0.19.0",
-    "cursor-notebook-mcp",
     "pytest",
     "lightning>=2.6.5",
+    "jsonargparse[signatures]>=4.27.7",
+    "pyyaml>=6.0.2",
+    "cursor-notebook-mcp>=0.3.1",
+    "pydantic>=2.11.0,<2.12.0",
 ]
 
+[tool.uv]
+# fastmcp 2.10.x crashes on pydantic 2.12+ (Field default + default_factory)
+override-dependencies = [
+    "pydantic>=2.11.0,<2.12.0",
+]
+
+# PyTorch CUDA wheels (Linux + Windows). macOS falls back to PyPI (CPU).
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu126", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
 [project.scripts]
-train-gru4rec = "src.training.train_gru4rec:main"
+adm-train = "src.main:cli_main"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

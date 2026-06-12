@@ -9,7 +9,8 @@ import torch
 from torch import Tensor
 from torch.utils.data import DataLoader
 
-from src.preprocessing.vocab import load_item_vocab
+from src.artifacts import load_meta
+from src.artifacts.vocab import load_gru_item2idx
 
 
 def popularity_top_k(meta: dict[str, Any], k: int = 20) -> list[int]:
@@ -23,14 +24,12 @@ def popularity_top_k(meta: dict[str, Any], k: int = 20) -> list[int]:
 
 def popularity_top_k_gru_indices(processed_dir: Path, k: int = 20) -> list[int]:
     """Map global popularity baseline IDs to GRU4Rec item indices."""
-    from src.data.meta import load_meta
-
     meta = load_meta(processed_dir)
-    vocab = load_item_vocab(processed_dir / "vocab")
+    item2idx = load_gru_item2idx(processed_dir / "vocab")
     indices: list[int] = []
     for raw_id in popularity_top_k(meta, k=k):
-        if raw_id in vocab.item2idx:
-            indices.append(vocab.gru_index(raw_id, known=True))
+        if raw_id in item2idx:
+            indices.append(item2idx[raw_id])
     return indices
 
 

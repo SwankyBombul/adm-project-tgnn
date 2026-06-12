@@ -1,4 +1,4 @@
-"""Tests for training scaffold (config, colab data unpack, collate)."""
+"""Tests for Colab runtime helpers and GRU4Rec data utilities."""
 
 from __future__ import annotations
 
@@ -7,14 +7,11 @@ import zipfile
 from pathlib import Path
 
 import numpy as np
-import torch
 
-from src.colab.setup import unzip_processed_archive
-from src.colab.setup import check_drive_layout
-from src.config.train_config import TrainConfig
+from src.artifacts import gru4rec_vocab_size, load_meta
 from src.config.wandb_settings import WANDB_ENTITY, WANDB_PROJECT, expected_wandb_settings
-from src.data.gru4rec import gru4rec_collate_fn
-from src.data.meta import gru4rec_vocab_size, load_meta
+from src.models.gru4rec import gru4rec_collate_fn
+from src.runtime import check_drive_layout, prepare_colab_session, unzip_processed_archive
 
 
 def test_wandb_defaults() -> None:
@@ -40,17 +37,19 @@ def test_check_drive_layout_missing_zip(tmp_path: Path) -> None:
     assert any("processed.zip" in error for error in layout.errors)
 
 
-def test_train_config_colab_paths(tmp_path: Path) -> None:
+def test_prepare_colab_session_paths(tmp_path: Path) -> None:
     drive_root = tmp_path / "drive_project"
-    config = TrainConfig.for_colab(
+    data_dir = drive_root / "data"
+    data_dir.mkdir(parents=True)
+    (data_dir / "processed.zip").write_bytes(b"not-a-real-zip")
+
+    session = prepare_colab_session(
         drive_root,
         run_name="smoke",
-        processed_variant="subsample_1_32_clicks_only",
+        mount_drive=False,
+        unpack_zip=False,
     )
-
-    assert config.processed_zip_path == drive_root / "data" / "processed.zip"
-    assert config.checkpoint_dir == drive_root / "checkpoints" / "gru4rec" / "smoke"
-    assert "processed_dir" in config.to_dict()
+    assert session.checkpoint_dir == drive_root / "checkpoints" / "gru4rec" / "smoke"
 
 
 def test_unzip_processed_archive_with_processed_prefix(tmp_path: Path) -> None:

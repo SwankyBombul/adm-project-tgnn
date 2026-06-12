@@ -238,7 +238,7 @@ uv run python -m src.main validate `
   --ckpt_path best
 ```
 
-`best` wskazuje najlepszy checkpoint wg `val/recall@20` (zapisany przez `ModelCheckpoint`, bez `last.ckpt`).
+`best` / `last` szukają najnowszego pliku `.ckpt` w `checkpoints/gru4rec/` (przydatne po osobnym `fit`). Możesz też podać pełną ścieżkę, np. `checkpoints/gru4rec/adm-project-tgnn/by69hj21/checkpoints/best-epoch_004.ckpt`.
 
 **Colab** — `prepare_colab_session(drive_dir, run_name=...)` rozpakowuje dane, potem `python -m src.main fit ...` z `data.init_args.processed_dir` wskazującym na lokalny unpack.
 

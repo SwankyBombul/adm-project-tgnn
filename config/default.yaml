@@ -21,7 +21,7 @@ trainer:
   callbacks:
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
-        filename: best-epoch_{epoch:03d}-recall20_{val/recall@20:.4f}
+        filename: best-epoch_{epoch:03d}
         monitor: val/recall@20
         mode: max
         save_top_k: 1

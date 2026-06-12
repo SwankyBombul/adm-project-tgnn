@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from src.colab.setup import prepare_colab_session
+from src.colab.setup import is_colab, prepare_colab_session
 from src.config.train_config import TrainConfig
 from src.data.gru4rec import GRU4RecDataset, gru4rec_collate_fn
 from src.data.meta import gru4rec_vocab_size, load_meta, split_examples_path
@@ -33,12 +33,13 @@ def build_dataloaders(config: TrainConfig) -> tuple[DataLoader, DataLoader]:
     train_path = split_examples_path(config.processed_dir, "train", "gru4rec")
     val_path = split_examples_path(config.processed_dir, "val", "gru4rec")
     pin = config.device.startswith("cuda") and torch.cuda.is_available()
+    num_workers = 0 if is_colab() else config.num_workers
 
     train_loader = DataLoader(
         GRU4RecDataset(train_path),
         batch_size=config.batch_size,
         shuffle=True,
-        num_workers=config.num_workers,
+        num_workers=num_workers,
         collate_fn=gru4rec_collate_fn,
         pin_memory=pin,
     )
@@ -46,7 +47,7 @@ def build_dataloaders(config: TrainConfig) -> tuple[DataLoader, DataLoader]:
         GRU4RecDataset(val_path),
         batch_size=config.batch_size,
         shuffle=False,
-        num_workers=config.num_workers,
+        num_workers=num_workers,
         collate_fn=gru4rec_collate_fn,
         pin_memory=pin,
     )

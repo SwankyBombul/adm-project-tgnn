@@ -97,6 +97,8 @@ class TrainConfig:
         **kwargs: Any,
     ) -> TrainConfig:
         """Factory for the standard Colab + Drive layout."""
+        colab_defaults = {"num_workers": 0}
+        colab_defaults.update(kwargs)
         return cls(
             model_name=model_name,
             processed_variant=processed_variant,
@@ -104,7 +106,7 @@ class TrainConfig:
             mount_google_drive=True,
             unpack_processed_zip=True,
             wandb_run_name=wandb_run_name,
-            **kwargs,
+            **colab_defaults,
         )
 
     def to_dict(self) -> dict[str, Any]:

@@ -20,6 +20,10 @@ def _as_int_list(history: HistoryLike) -> list[int]:
     """Normalize parquet / numpy history values to a plain Python list."""
     if isinstance(history, np.ndarray):
         return history.astype(np.int64, copy=False).tolist()
+    if hasattr(history, "tolist") and not isinstance(history, (str, bytes)):
+        converted = history.tolist()
+        if converted is not history:
+            return _as_int_list(converted)
     return [int(item) for item in history]
 
 
@@ -30,7 +34,9 @@ class GRU4RecDataset(Dataset):
         if not examples_path.is_file():
             raise FileNotFoundError(examples_path)
         frame = pd.read_parquet(examples_path)
-        self._history = frame["history_item_idx"].tolist()
+        self._history = [
+            _as_int_list(history) for history in frame["history_item_idx"].tolist()
+        ]
         self._targets = frame["target_item_idx"].to_numpy(dtype=np.int64)
 
     def __len__(self) -> int:

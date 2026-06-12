@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from src.preprocessing.config import PreprocessConfig
 from src.preprocessing.examples import ExampleBatch
@@ -29,12 +31,27 @@ def _write_pickle(obj: Any, path: Path) -> None:
         pickle.dump(obj, fh, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def _append_parquet(df: pd.DataFrame, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
-        df.to_parquet(path, index=False, engine="pyarrow", append=True)
-    else:
-        df.to_parquet(path, index=False)
+class _ParquetStreamWriter:
+    """Append parquet row batches via pyarrow ParquetWriter (pandas append unsupported)."""
+
+    def __init__(self) -> None:
+        self._writers: dict[Path, pq.ParquetWriter] = {}
+
+    def write(self, df: pd.DataFrame, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        table = pa.Table.from_pandas(df, preserve_index=False)
+        writer = self._writers.get(path)
+        if writer is None:
+            if path.exists():
+                path.unlink()
+            writer = pq.ParquetWriter(path, table.schema)
+            self._writers[path] = writer
+        writer.write_table(table)
+
+    def close(self) -> None:
+        for writer in self._writers.values():
+            writer.close()
+        self._writers.clear()
 
 
 def write_examples_streaming(
@@ -49,10 +66,7 @@ def write_examples_streaming(
         output_dir / "tagnn_examples.parquet" if export_sequence_models else None
     )
 
-    for path in (p for p in (tgn_path, gru_path, tagnn_path) if p is not None):
-        if path.exists():
-            path.unlink()
-
+    stream_writer = _ParquetStreamWriter()
     gru_rows: list[dict] = []
     tagnn_rows: list[dict] = []
     tgn_rows: list[dict] = []
@@ -62,24 +76,27 @@ def write_examples_streaming(
         nonlocal gru_rows, tagnn_rows, tgn_rows
         if not tgn_rows:
             return
-        _append_parquet(pd.DataFrame(tgn_rows), tgn_path)
+        stream_writer.write(pd.DataFrame(tgn_rows), tgn_path)
         if gru_path is not None:
-            _append_parquet(pd.DataFrame(gru_rows), gru_path)
+            stream_writer.write(pd.DataFrame(gru_rows), gru_path)
         if tagnn_path is not None:
-            _append_parquet(pd.DataFrame(tagnn_rows), tagnn_path)
+            stream_writer.write(pd.DataFrame(tagnn_rows), tagnn_path)
         gru_rows = []
         tagnn_rows = []
         tgn_rows = []
 
-    for gru_row, tagnn_row, tgn_row in example_iter:
-        gru_rows.append(gru_row)
-        tagnn_rows.append(tagnn_row)
-        tgn_rows.append(tgn_row)
-        total += 1
-        if len(tgn_rows) >= _STREAM_BATCH_SIZE:
-            flush()
+    try:
+        for gru_row, tagnn_row, tgn_row in example_iter:
+            gru_rows.append(gru_row)
+            tagnn_rows.append(tagnn_row)
+            tgn_rows.append(tgn_row)
+            total += 1
+            if len(tgn_rows) >= _STREAM_BATCH_SIZE:
+                flush()
+        flush()
+    finally:
+        stream_writer.close()
 
-    flush()
     gc.collect()
     return total
 

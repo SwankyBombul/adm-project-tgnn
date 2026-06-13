@@ -288,7 +288,12 @@ class TGNModel(nn.Module):
         """Evaluation: replay prefixes only (no target-event memory updates)."""
         targets = batch.target_item_idx_tgn
         n = targets.size(0)
-        logits = targets.new_empty(n, self.num_items)
+        logits = torch.empty(
+            n,
+            self.num_items,
+            device=targets.device,
+            dtype=torch.float32,
+        )
         item_chunk = self.fast_eval_item_chunk_size if fast_eval else self.item_embed_chunk_size
 
         order = batch.prefix_last_event_id.argsort()

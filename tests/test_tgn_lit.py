@@ -85,6 +85,8 @@ def test_tgn_fast_eval_matches_shapes(tmp_path: Path) -> None:
     module.set_event_tensors(train_events=events, eval_events=events)
     module.model.reset_state()
     batch = _example_batch()
-    full_logits, _ = module.model.forward_eval_batch(batch, events, fast_eval=False)
+    full_logits, targets = module.model.forward_eval_batch(batch, events, fast_eval=False)
     fast_logits, _ = module.model.forward_eval_batch(batch, events, fast_eval=True)
     assert full_logits.shape == fast_logits.shape == (2, 5)
+    assert full_logits.dtype == torch.float32
+    assert fast_logits.dtype == torch.float32

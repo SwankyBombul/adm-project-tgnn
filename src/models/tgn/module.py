@@ -74,8 +74,6 @@ class TGNLitModule(NextItemLitModule):
         datamodule = self.trainer.datamodule
         if datamodule is not None and hasattr(datamodule, "attach_events_to_module"):
             datamodule.attach_events_to_module(self)
-            if self.loss_mode == "ce":
-                datamodule.set_eval_split(self, "train")
 
     def on_validation_epoch_start(self) -> None:
         datamodule = self.trainer.datamodule

@@ -164,7 +164,9 @@ class TGNDataModule(pl.LightningDataModule):
 
     def set_eval_split(self, module, split: str) -> None:  # noqa: ANN001
         device = module.device
-        if split == "val":
+        if split == "train":
+            events = self.train_events.to(device)
+        elif split == "val":
             events = self.val_events.to(device)
         elif split == "test_internal":
             events = self.test_internal_events.to(device)

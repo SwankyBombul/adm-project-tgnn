@@ -34,6 +34,7 @@ class TGNModel(nn.Module):
         msg_dim: int = 4,
         n_neighbors: int = 10,
         item_embed_chunk_size: int = 512,
+        fast_eval_item_chunk_size: int = 4096,
     ) -> None:
         super().__init__()
         self.num_items = num_items
@@ -41,6 +42,7 @@ class TGNModel(nn.Module):
         self.n_neighbors = n_neighbors
         self.msg_dim = msg_dim
         self.item_embed_chunk_size = item_embed_chunk_size
+        self.fast_eval_item_chunk_size = fast_eval_item_chunk_size
         self._num_nodes = num_nodes(num_items, num_sessions)
 
         self.memory = SafeTGNMemory(
@@ -166,12 +168,13 @@ class TGNModel(nn.Module):
         session_emb: Tensor,
         *,
         memory_only_items: bool = False,
+        item_chunk_size: int | None = None,
     ) -> Tensor:
         """Full-catalog logits without embedding all items in one forward pass."""
         batch_size = session_emb.size(0)
         logits = session_emb.new_empty(batch_size, self.num_items)
         item_ids = item_global_ids(self.num_items, device=self.device)
-        chunk_size = self.item_embed_chunk_size
+        chunk_size = item_chunk_size or self.item_embed_chunk_size
         for start in range(0, self.num_items, chunk_size):
             end = min(self.num_items, start + chunk_size)
             chunk_emb = self._compute_embeddings(
@@ -184,6 +187,10 @@ class TGNModel(nn.Module):
                 chunk_size=chunk_emb.size(0),
             )
         return logits
+
+    def reset_replay_cursor(self) -> None:
+        """Reset incremental replay position (e.g. when switching to val events)."""
+        self._replay = TGNReplayState()
 
     def _update_from_tensors(
         self,
@@ -279,17 +286,33 @@ class TGNModel(nn.Module):
         fast_eval: bool = False,
     ) -> tuple[Tensor, Tensor]:
         """Evaluation: replay prefixes only (no target-event memory updates)."""
-        logits_list: list[Tensor] = []
         targets = batch.target_item_idx_tgn
+        n = targets.size(0)
+        logits = targets.new_empty(n, self.num_items)
+        item_chunk = self.fast_eval_item_chunk_size if fast_eval else self.item_embed_chunk_size
+
+        order = batch.prefix_last_event_id.argsort()
+        prefixes = batch.prefix_last_event_id[order]
+
         with torch.no_grad():
-            for i in range(targets.size(0)):
-                prefix_end = int(batch.prefix_last_event_id[i].item())
+            pos = 0
+            while pos < n:
+                prefix_end = int(prefixes[pos].item())
+                end = pos + 1
+                while end < n and int(prefixes[end].item()) == prefix_end:
+                    end += 1
+
                 self.replay_events_up_to(events, prefix_end)
-                session_emb = self._session_embeddings(batch.session_idx[i : i + 1])
-                logits_list.append(
-                    self._score_full_catalog(
-                        session_emb,
-                        memory_only_items=fast_eval,
-                    )
+                idx = order[pos:end]
+                session_emb = self._compute_embeddings(
+                    self._session_global(batch.session_idx[idx]),
+                    memory_only=fast_eval,
                 )
-        return torch.cat(logits_list, dim=0), targets
+                logits[idx] = self._score_full_catalog(
+                    session_emb,
+                    memory_only_items=fast_eval,
+                    item_chunk_size=item_chunk,
+                )
+                pos = end
+
+        return logits, targets

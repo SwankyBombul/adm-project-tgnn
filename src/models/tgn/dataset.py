@@ -92,10 +92,22 @@ class TGNExampleBatch:
 class TGNExampleDataset(Dataset[TGNExampleBatch]):
     """Next-click supervision rows from ``examples.parquet``."""
 
-    def __init__(self, path: Path, *, sort_by_target: bool = True) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        sort_by_target: bool = True,
+        sort_by_prefix: bool = False,
+        max_examples: int | None = None,
+    ) -> None:
         df = pd.read_parquet(path)
-        if sort_by_target:
+        if sort_by_prefix:
+            df = df.sort_values("prefix_last_event_id", kind="mergesort").reset_index(drop=True)
+        elif sort_by_target:
             df = df.sort_values("target_event_id", kind="mergesort").reset_index(drop=True)
+        if max_examples is not None and len(df) > max_examples:
+            stride = max(len(df) // max_examples, 1)
+            df = df.iloc[::stride].head(max_examples).reset_index(drop=True)
         self._session_idx = torch.as_tensor(df["session_idx"].to_numpy(), dtype=torch.long)
         self._target_item = torch.as_tensor(
             df["target_item_idx_tgn"].to_numpy(), dtype=torch.long

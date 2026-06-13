@@ -37,6 +37,7 @@ class TGNLitModule(NextItemLitModule):
         embedding_dim: int = 100,
         n_neighbors: int = 10,
         item_embed_chunk_size: int = 512,
+        fast_eval_item_chunk_size: int = 4096,
         fast_eval: bool = True,
         learning_rate: float = 1e-4,
         metric_ks: tuple[int, ...] = DEFAULT_KS,
@@ -62,6 +63,7 @@ class TGNLitModule(NextItemLitModule):
             embedding_dim=embedding_dim,
             n_neighbors=n_neighbors,
             item_embed_chunk_size=item_embed_chunk_size,
+            fast_eval_item_chunk_size=fast_eval_item_chunk_size,
         )
         self._train_events: TGNEventTensors | None = None
         self._eval_events: TGNEventTensors | None = None
@@ -106,8 +108,10 @@ class TGNLitModule(NextItemLitModule):
                 "TGN eval: reusing BCE train memory (skipping train warmup replay)"
             )
             self._reuse_bce_train_memory = False
+            self.model.reset_replay_cursor()
             return
         self._warmup_for_eval()
+        self.model.reset_replay_cursor()
 
     def on_test_batch_start(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> None:
         if batch_idx != 0:

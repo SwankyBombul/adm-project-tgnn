@@ -33,6 +33,7 @@ class TGNDataModule(pl.LightningDataModule):
         *,
         event_batch_size: int = 200,
         example_batch_size: int = 32,
+        val_max_examples: int | None = 2000,
         num_workers: int = 0,
         pin_memory: bool | None = None,
         loss_mode: str = "bce",
@@ -48,6 +49,7 @@ class TGNDataModule(pl.LightningDataModule):
         self.loss_mode = loss_mode
         self.event_batch_size = event_batch_size
         self.example_batch_size = example_batch_size
+        self.val_max_examples = val_max_examples
         self.num_workers = _resolve_num_workers(num_workers)
         if pin_memory is None:
             pin_memory = torch.cuda.is_available()
@@ -73,7 +75,8 @@ class TGNDataModule(pl.LightningDataModule):
         if stage in ("fit", "validate", None):
             self.val_example_dataset = TGNExampleDataset(
                 split_examples_path(self.processed_dir, "val", "tgn"),
-                sort_by_target=True,
+                sort_by_prefix=True,
+                max_examples=self.val_max_examples if stage in ("fit", None) else None,
             )
             self.val_events = load_events_tensors(
                 split_events_path(self.processed_dir, "val")

@@ -81,7 +81,7 @@ def link_tgn_num_items(data_cfg: Any, model_cfg: Any) -> None:
     _set_init_arg(model_cfg, "num_items", tgn_num_items(meta))
     train_events = load_events_tensors(split_events_path(processed_dir, "train"))
     max_sessions = train_events.num_sessions
-    for split in ("val", "test_internal", "challenge_test"):
+    for split in ("val", "test_internal"):
         path = split_events_path(processed_dir, split)
         if path.is_file():
             max_sessions = max(max_sessions, load_events_tensors(path).num_sessions)

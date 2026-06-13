@@ -6,8 +6,9 @@ from dataclasses import dataclass
 
 import torch
 from torch import Tensor, nn
-from torch_geometric.nn import TGNMemory
 from torch_geometric.nn.models.tgn import IdentityMessage, LastAggregator, LastNeighborLoader
+
+from src.models.tgn.memory import SafeTGNMemory
 
 from src.models.tgn.dataset import TGNEventTensors, TGNExampleBatch
 from src.models.tgn.decoder import LinkDecoder
@@ -40,7 +41,7 @@ class TGNModel(nn.Module):
         self.msg_dim = msg_dim
         self._num_nodes = num_nodes(num_items, num_sessions)
 
-        self.memory = TGNMemory(
+        self.memory = SafeTGNMemory(
             self._num_nodes,
             msg_dim,
             memory_dim,

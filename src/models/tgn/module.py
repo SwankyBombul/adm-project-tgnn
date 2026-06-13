@@ -141,6 +141,10 @@ class TGNLitModule(NextItemLitModule):
         if self.loss_mode == "bce":
             self.model.detach_memory()
 
+    def on_validation_model_eval(self) -> None:
+        # Drop pending raw messages before Lightning calls model.eval().
+        self.model.memory._reset_message_store()
+
     def validation_step(self, batch: Any, batch_idx: int) -> None:
         logits, targets = self.compute_logits_and_targets(batch)
         loss = self.compute_loss(logits, targets)

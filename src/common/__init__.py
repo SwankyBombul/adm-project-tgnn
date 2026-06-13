@@ -7,7 +7,8 @@ Package layout (refactor conventions):
 - ``preprocessing/`` — writes artifacts; downstream code reads them via ``artifacts/``
 - ``models/<name>/`` — one subpackage per model (e.g. ``gru4rec/``: model, dataset, module)
 - ``data_modules/`` — LightningDataModule per model
-- ``main.py`` + ``utils/cli.py`` — LightningCLI entry (``fit``, ``validate``, …)
+- ``main.py`` + ``utils/cli.py`` — LightningCLI entry (``fit``, ``evaluate``, …)
+- ``training/`` — shared LightningModule skeleton and checkpoint paths
 - ``evaluation/`` — ranking metrics and baselines
 """
 

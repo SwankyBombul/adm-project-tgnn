@@ -14,7 +14,7 @@ from src.models.gru4rec.dataset import GRU4RecDataset, gru4rec_collate_fn
 
 
 class GRU4RecDataModule(pl.LightningDataModule):
-    """Load train/val splits from ``{processed_dir}/{split}/gru4rec_examples.parquet``."""
+    """Load train/val/eval splits from processed parquet artifacts."""
 
     def __init__(
         self,
@@ -41,6 +41,8 @@ class GRU4RecDataModule(pl.LightningDataModule):
 
         self.train_dataset: GRU4RecDataset | None = None
         self.val_dataset: GRU4RecDataset | None = None
+        self.test_internal_dataset: GRU4RecDataset | None = None
+        self.challenge_test_dataset: GRU4RecDataset | None = None
 
     def setup(self, stage: str | None = None) -> None:
         if stage in ("fit", None):
@@ -49,6 +51,15 @@ class GRU4RecDataModule(pl.LightningDataModule):
         if stage in ("fit", "validate", None):
             val_path = split_examples_path(self.processed_dir, "val", "gru4rec")
             self.val_dataset = GRU4RecDataset(val_path)
+        if stage in ("test", None):
+            test_internal_path = split_examples_path(
+                self.processed_dir, "test_internal", "gru4rec"
+            )
+            challenge_test_path = split_examples_path(
+                self.processed_dir, "challenge_test", "gru4rec"
+            )
+            self.test_internal_dataset = GRU4RecDataset(test_internal_path)
+            self.challenge_test_dataset = GRU4RecDataset(challenge_test_path)
 
     def train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
@@ -73,3 +84,18 @@ class GRU4RecDataModule(pl.LightningDataModule):
             collate_fn=gru4rec_collate_fn,
             pin_memory=self.pin_memory,
         )
+
+    def test_dataloader(self) -> list[DataLoader]:
+        if self.test_internal_dataset is None or self.challenge_test_dataset is None:
+            raise RuntimeError("Call setup('test') before test_dataloader().")
+        loader_kwargs = {
+            "batch_size": self.batch_size,
+            "shuffle": False,
+            "num_workers": self.num_workers,
+            "collate_fn": gru4rec_collate_fn,
+            "pin_memory": self.pin_memory,
+        }
+        return [
+            DataLoader(self.test_internal_dataset, **loader_kwargs),
+            DataLoader(self.challenge_test_dataset, **loader_kwargs),
+        ]

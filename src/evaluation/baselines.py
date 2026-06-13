@@ -53,7 +53,9 @@ def evaluate_pop_baseline(
     all_targets: list[Tensor] = []
 
     for batch in dataloader:
-        targets = batch[2] if len(batch) == 3 else batch[1]
+        targets = batch[-1]
+        if not isinstance(targets, Tensor):
+            raise TypeError(f"Expected target tensor as last batch element, got {type(targets)}")
         all_targets.append(targets.to(device))
 
     targets = torch.cat(all_targets, dim=0)

@@ -57,14 +57,27 @@ class TGNModel(nn.Module):
         )
         self.mem_to_emb = nn.Linear(memory_dim, embedding_dim)
         self.decoder = LinkDecoder(embedding_dim)
-        self._neighbor_loader = LastNeighborLoader(
-            self._num_nodes, size=self.n_neighbors, device=self.device
-        )
+        self._neighbor_loader: LastNeighborLoader | None = None
         self._replay = TGNReplayState()
 
     @property
     def device(self) -> torch.device:
         return next(self.parameters()).device
+
+    def _neighbor_loader_for_device(self) -> LastNeighborLoader:
+        """(Re)build ``LastNeighborLoader`` when the module moves across devices."""
+        dev = self.device
+        loader = self._neighbor_loader
+        if loader is None or loader.neighbors.device != dev:
+            self._neighbor_loader = LastNeighborLoader(
+                self._num_nodes, size=self.n_neighbors, device=dev
+            )
+        return self._neighbor_loader
+
+    def to(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        out = super().to(*args, **kwargs)
+        self._neighbor_loader = None
+        return out
 
     def _memory_time(self, t_sec: Tensor) -> Tensor:
         """PyG ``TGNMemory.last_update`` stores integer timestamps."""
@@ -76,13 +89,11 @@ class TGNModel(nn.Module):
             return
         self.num_sessions = num_sessions
         self._num_nodes = num_nodes(self.num_items, num_sessions)
-        self._neighbor_loader = LastNeighborLoader(
-            self._num_nodes, size=self.n_neighbors, device=self.device
-        )
+        self._neighbor_loader = None
 
     def reset_state(self) -> None:
         self.memory.reset_state()
-        self._neighbor_loader.reset_state()
+        self._neighbor_loader_for_device().reset_state()
         self._replay = TGNReplayState()
 
     def detach_memory(self) -> None:
@@ -96,7 +107,8 @@ class TGNModel(nn.Module):
         return edge_endpoints(session_idx, item_idx_tgn, self.num_items)
 
     def _compute_embeddings(self, n_id: Tensor) -> Tensor:
-        all_id, edge_index, e_id = self._neighbor_loader(n_id)
+        neighbor_loader = self._neighbor_loader_for_device()
+        all_id, edge_index, e_id = neighbor_loader(n_id)
         z, last_update = self.memory(all_id)
         if edge_index.numel() == 0:
             out = self.mem_to_emb(z)
@@ -135,7 +147,7 @@ class TGNModel(nn.Module):
         src, dst = self._global_endpoints(session_idx, item_idx_tgn)
         t = self._memory_time(t_sec)
         self.memory.update_state(src, dst, t, msg)
-        self._neighbor_loader.insert(src, dst)
+        self._neighbor_loader_for_device().insert(src, dst)
 
     def replay_events_up_to(
         self,

@@ -8,7 +8,6 @@ Package layout (refactor conventions):
 - ``models/<name>/`` — one subpackage per model (e.g. ``gru4rec/``: model, dataset, module)
 - ``data_modules/`` — LightningDataModule per model
 - ``main.py`` + ``utils/cli.py`` — LightningCLI entry (``fit``, ``validate``, …)
-- ``runtime/`` — Colab session setup (Drive, unpack)
 - ``evaluation/`` — ranking metrics and baselines
 """
 

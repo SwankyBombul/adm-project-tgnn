@@ -23,7 +23,6 @@ Projekt z przedmiotu **Advanced Data Mining (ADM)** — rekomendacje sesyjne z w
   - [EDA](#2-eksploracja-danych-eda)
   - [Preprocessing](#3-preprocessing)
 - [Trening i eksperymenty](#trening-i-eksperymenty)
-- [Google Colab](#google-colab)
 - [Struktura repozytorium](#struktura-repozytorium)
 - [Środowisko i zależności](#środowisko-i-zależności)
 - [Konfiguracja YAML](#konfiguracja-yaml-config)
@@ -59,7 +58,6 @@ src/main.py (LightningCLI)  →  trening GRU4Rec  →  checkpoints/ + W&B
 2. **EDA** w notebooku ustaliliśmy m.in. subsample 1/32, split 70/15/15 po czasie, sliding window na trainie i ostatni klik na val/test.
 3. **Preprocessing** (`uv run python -m src.preprocessing`) zapisuje gotowe pliki pod trzy modele; kontrakt jest w `meta.json`.
 4. **Trening** idzie przez PyTorch Lightning CLI (`src/main.py`) z konfiguracją YAML; logi trafiają na [W&B](https://wandb.ai/project-nn/adm-project-tgnn).
-5. **Colab** — osobna ścieżka na GPU bez trzymania dużych plików lokalnie (szczegóły w [sekcji Colab](#google-colab)).
 
 ---
 
@@ -214,71 +212,7 @@ uv run python -m src.main validate `
 
 Checkpointy zapisuje `ModelCheckpoint` (monitor: `val/recall@20`). Metryki rankingowe (`recall@k`, `mrr@k`, `ndcg@k`) i baseline POP@20 są w `src/evaluation/`.
 
----
-
-## Google Colab
-
-Trening na GPU w Colabie jest osobną ścieżką od lokalnej — duże pliki trzymamy na **Google Drive**, a w runtime Colaba rozpakowujemy je lokalnie (szybszy I/O niż czytanie wprost z Drive).
-
-### Co jest już gotowe
-
-| Element | Gdzie | Po co |
-|---------|-------|-------|
-| Helpery sesji Colab | `src/runtime/colab.py` | mount Drive, walidacja folderu, unpack `processed.zip` |
-| `is_colab()` | `src/runtime/colab.py` | wykrywa środowisko Colab (np. `num_workers=0` w DataModule) |
-| Ustawienia W&B | `src/config/wandb_settings.py` | stałe entity/project, `login_wandb()`, `verify_wandb_access()` |
-| Testy runtime | `tests/test_training_scaffold.py` | layout Drive, unpack archiwum, domyślne W&B |
-
-### Oczekiwany układ na Google Drive
-
-W folderze projektu na Drive (np. `MyDrive/adm-project-tgnn/`):
-
-```text
-adm-project-tgnn/          ← DRIVE_PROJECT_DIR
-├── data/
-│   └── processed.zip      ← spakowany katalog data/processed/ z lokalnego preprocessingu
-└── checkpoints/           ← tworzy się przy treningu (np. gru4rec/<run_name>/)
-```
-
-`processed.zip` tworzysz lokalnie po preprocessingu — spakuj cały katalog `data/processed/` (z wariantem `subsample_1_32_clicks_only` itd.) i wrzuć na Drive.
-
-### Typowy flow w notebooku Colab
-
-```python
-from src.runtime import prepare_colab_session
-from src.config import login_wandb, verify_wandb_access
-
-# 1. Sesja: mount Drive, sprawdzenie ścieżek, unpack do /content/.../data/processed
-session = prepare_colab_session(
-    "/content/drive/MyDrive/adm-project-tgnn",  # dostosuj do swojego folderu
-    run_name="gru4rec-baseline",
-)
-
-# 2. Logowanie W&B (w Colabie często interaktywnie)
-login_wandb()
-verify_wandb_access()  # upewnia się, że masz dostęp do project-nn/adm-project-tgnn
-
-# 3. Trening — processed_dir wskazuje na lokalny unpack, nie na Drive
-# !python -m src.main fit \
-#   -c config/data/gru4rec_yoochoose.yaml \
-#   -c config/model/gru4rec.yaml \
-#   -c config/experiments/gru4rec_baseline.yaml \
-#   --data.init_args.processed_dir {session.local_processed_root}/subsample_1_32_clicks_only
-```
-
-`prepare_colab_session()`:
-
-1. montuje Google Drive (w Colabie),
-2. sprawdza, czy istnieje `data/processed.zip`,
-3. rozpakowuje archiwum do lokalnego `data/processed/` w runtime,
-4. zakłada katalog checkpointów na Drive: `checkpoints/<model>/<run_name>/`.
-
-### Co jest jeszcze planowane
-
-- dedykowany **notebook treningowy** w Colab (obecnie infrastruktura jest w `src/runtime/`, uruchomienie przez komórki jak wyżej),
-- analogiczny flow pod TAGNN i TGN.
-
-Notebooki w `notebooks/` (`eda_yoochose`, `validate_preprocessing`) służą głównie do **analizy i walidacji danych** — można je otworzyć w Colabie, ale pełny pipeline treningowy opisany jest w tej sekcji.
+Ustawienia W&B (`entity`, `project`, `login_wandb()`, `verify_wandb_access()`) są w `src/config/wandb_settings.py`.
 
 ---
 
@@ -304,7 +238,6 @@ adm-project-tgnn/
 │   │   └── gru4rec/              # model + dataset + LightningModule
 │   ├── data_modules/             # LightningDataModule (GRU4Rec, …)
 │   ├── main.py                   # LightningCLI: fit / validate / test
-│   ├── runtime/                  # Colab (Drive, unpack, is_colab)
 │   ├── evaluation/               # metryki i baseline'y
 │   └── config/                   # wandb defaults, preprocessing YAML loader
 ├── tests/                        # testy jednostkowe
@@ -381,8 +314,7 @@ Eksperymenty i domyślne parametry trzymamy w plikach YAML w katalogu `config/`:
 | Preprocessing (subsample, split, vocab, eksport GRU/TAGNN/TGN) | `src/preprocessing/` |
 | Baseline GRU4Rec (LightningCLI, W&B, checkpoint `best`) | `src/main.py`, `config/`, `src/models/gru4rec/` |
 | Metryki rankingowe + POP@20 baseline | `src/evaluation/` |
-| Infrastruktura Colab (Drive, unpack, W&B helpers) | `src/runtime/`, `src/config/wandb_settings.py` |
-| Notebook treningowy Colab | planowane |
+| Ustawienia W&B | `src/config/wandb_settings.py` |
 | TAGNN → TGN | planowane |
 
 Wyniki treningów GRU4Rec: [W&B — adm-project-tgnn](https://wandb.ai/project-nn/adm-project-tgnn).

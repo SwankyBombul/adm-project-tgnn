@@ -11,7 +11,6 @@ from torch.utils.data import DataLoader
 from src.artifacts import gru4rec_vocab_size, load_meta, split_examples_path
 from src.common.paths import get_project_root
 from src.models.gru4rec.dataset import GRU4RecDataset, gru4rec_collate_fn
-from src.runtime import is_colab
 
 
 class GRU4RecDataModule(pl.LightningDataModule):
@@ -35,7 +34,7 @@ class GRU4RecDataModule(pl.LightningDataModule):
         self.num_embeddings = gru4rec_vocab_size(meta)
 
         self.batch_size = batch_size
-        self.num_workers = 0 if is_colab() else num_workers
+        self.num_workers = num_workers
         if pin_memory is None:
             pin_memory = torch.cuda.is_available()
         self.pin_memory = pin_memory

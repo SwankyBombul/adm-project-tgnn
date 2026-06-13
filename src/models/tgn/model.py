@@ -135,7 +135,10 @@ class TGNModel(nn.Module):
     ) -> tuple[Tensor, Tensor]:
         return edge_endpoints(session_idx, item_idx_tgn, self.num_items)
 
-    def _compute_embeddings(self, n_id: Tensor) -> Tensor:
+    def _compute_embeddings(self, n_id: Tensor, *, memory_only: bool = False) -> Tensor:
+        if memory_only:
+            z, _ = self.memory(n_id)
+            return self.mem_to_emb(z)
         neighbor_loader = self._neighbor_loader_for_device()
         all_id, edge_index, e_id = neighbor_loader(n_id)
         assoc = torch.empty(self._num_nodes, dtype=torch.long, device=self.device)
@@ -158,7 +161,12 @@ class TGNModel(nn.Module):
         item_ids = item_global_ids(self.num_items, device=self.device)
         return self._compute_embeddings(item_ids)
 
-    def _score_full_catalog(self, session_emb: Tensor) -> Tensor:
+    def _score_full_catalog(
+        self,
+        session_emb: Tensor,
+        *,
+        memory_only_items: bool = False,
+    ) -> Tensor:
         """Full-catalog logits without embedding all items in one forward pass."""
         batch_size = session_emb.size(0)
         logits = session_emb.new_empty(batch_size, self.num_items)
@@ -166,7 +174,10 @@ class TGNModel(nn.Module):
         chunk_size = self.item_embed_chunk_size
         for start in range(0, self.num_items, chunk_size):
             end = min(self.num_items, start + chunk_size)
-            chunk_emb = self._compute_embeddings(item_ids[start:end])
+            chunk_emb = self._compute_embeddings(
+                item_ids[start:end],
+                memory_only=memory_only_items,
+            )
             logits[:, start:end] = self.decoder.score_all_items(
                 session_emb,
                 chunk_emb,
@@ -264,6 +275,8 @@ class TGNModel(nn.Module):
         self,
         batch: TGNExampleBatch,
         events: TGNEventTensors,
+        *,
+        fast_eval: bool = False,
     ) -> tuple[Tensor, Tensor]:
         """Evaluation: replay prefixes only (no target-event memory updates)."""
         logits_list: list[Tensor] = []
@@ -273,5 +286,10 @@ class TGNModel(nn.Module):
                 prefix_end = int(batch.prefix_last_event_id[i].item())
                 self.replay_events_up_to(events, prefix_end)
                 session_emb = self._session_embeddings(batch.session_idx[i : i + 1])
-                logits_list.append(self._score_full_catalog(session_emb))
+                logits_list.append(
+                    self._score_full_catalog(
+                        session_emb,
+                        memory_only_items=fast_eval,
+                    )
+                )
         return torch.cat(logits_list, dim=0), targets

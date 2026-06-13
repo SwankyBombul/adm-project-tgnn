@@ -2,6 +2,7 @@
 trainer:
   max_epochs: 10
   num_sanity_val_steps: 0
+  limit_val_batches: 100
   logger:
     init_args:
       name: tgn-baseline

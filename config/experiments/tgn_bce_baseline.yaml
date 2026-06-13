@@ -2,6 +2,8 @@
 trainer:
   max_epochs: 10
   num_sanity_val_steps: 0
+  # Full val is ~39k examples × full-catalog scoring (~8h). Subsample during training.
+  limit_val_batches: 100
   logger:
     init_args:
       name: tgn-bce-baseline

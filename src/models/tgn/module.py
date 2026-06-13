@@ -20,7 +20,8 @@ from src.training.base_module import NextItemLitModule
 LossMode = Literal["ce", "bce"]
 
 # Replay train events in chunks during eval warmup (avoids huge tensors + shows progress).
-_WARMUP_CHUNK_EVENTS = 10_000
+_WARMUP_CHUNK_EVENTS = 50_000
+_WARMUP_LOG_EVERY_EVENTS = 100_000
 
 
 class TGNLitModule(NextItemLitModule):
@@ -36,6 +37,7 @@ class TGNLitModule(NextItemLitModule):
         embedding_dim: int = 100,
         n_neighbors: int = 10,
         item_embed_chunk_size: int = 512,
+        fast_eval: bool = True,
         learning_rate: float = 1e-4,
         metric_ks: tuple[int, ...] = DEFAULT_KS,
         pop_baseline_metrics: dict[str, float] | None = None,
@@ -50,6 +52,8 @@ class TGNLitModule(NextItemLitModule):
         self.save_hyperparameters(ignore=("pop_baseline_metrics",))
         self.loss_mode = loss_mode
         self.num_negatives = num_negatives
+        self.fast_eval = fast_eval
+        self._reuse_bce_train_memory = False
         self.model = TGNModel(
             num_items=num_items,
             num_sessions=num_sessions_train,
@@ -75,8 +79,13 @@ class TGNLitModule(NextItemLitModule):
 
     def on_train_epoch_start(self) -> None:
         self.model.reset_state()
+        self._reuse_bce_train_memory = False
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+    def on_train_epoch_end(self) -> None:
+        if self.loss_mode == "bce":
+            self._reuse_bce_train_memory = True
 
     def on_validation_epoch_end(self) -> None:
         if torch.cuda.is_available():
@@ -92,6 +101,12 @@ class TGNLitModule(NextItemLitModule):
         datamodule = self.trainer.datamodule
         if datamodule is not None and hasattr(datamodule, "set_eval_split"):
             datamodule.set_eval_split(self, "val")
+        if self.loss_mode == "bce" and self._reuse_bce_train_memory:
+            rank_zero_info(
+                "TGN eval: reusing BCE train memory (skipping train warmup replay)"
+            )
+            self._reuse_bce_train_memory = False
+            return
         self._warmup_for_eval()
 
     def on_test_batch_start(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> None:
@@ -121,7 +136,8 @@ class TGNLitModule(NextItemLitModule):
         while pos <= max_eid:
             end = min(pos + _WARMUP_CHUNK_EVENTS - 1, max_eid)
             self.model.replay_events_up_to(self._train_events, end)
-            rank_zero_info(f"TGN eval warmup: {end + 1:,} / {max_eid + 1:,} events")
+            if end + 1 >= max_eid + 1 or (end + 1) % _WARMUP_LOG_EVERY_EVENTS == 0:
+                rank_zero_info(f"TGN eval warmup: {end + 1:,} / {max_eid + 1:,} events")
             pos = end + 1
 
     def compute_logits_and_targets(
@@ -132,7 +148,11 @@ class TGNLitModule(NextItemLitModule):
             raise TypeError(f"Expected TGNExampleBatch, got {type(batch)}")
         if self._eval_events is None:
             raise RuntimeError("eval event tensors not set on TGNLitModule")
-        return self.model.forward_eval_batch(batch, self._eval_events)
+        return self.model.forward_eval_batch(
+            batch,
+            self._eval_events,
+            fast_eval=self.fast_eval,
+        )
 
     def popularity_indices(self, processed_dir: Path) -> list[int]:
         return popularity_top_k_tgn_indices(processed_dir, k=self.pop_baseline_k)

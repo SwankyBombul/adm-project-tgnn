@@ -11,5 +11,6 @@ model:
     embedding_dim: 100
     n_neighbors: 10
     item_embed_chunk_size: 256
+    fast_eval: true
     learning_rate: 0.0001
     compute_pop_baseline: true

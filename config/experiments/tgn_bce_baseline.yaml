@@ -1,0 +1,15 @@
+# TGN BCE baseline (W&B, 10 epochs)
+trainer:
+  max_epochs: 10
+  logger:
+    init_args:
+      name: tgn-bce-baseline
+      tags: [baseline, tgn, bce]
+
+data:
+  init_args:
+    loss_mode: bce
+
+model:
+  init_args:
+    loss_mode: bce

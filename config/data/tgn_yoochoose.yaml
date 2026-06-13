@@ -1,0 +1,9 @@
+# TGN data module — subsample 1/32 clicks-only variant
+data:
+  class_path: src.data_modules.tgn.TGNDataModule
+  init_args:
+    processed_dir: data/processed/subsample_1_32_clicks_only
+    event_batch_size: 200
+    example_batch_size: 256
+    num_workers: 0
+    loss_mode: bce

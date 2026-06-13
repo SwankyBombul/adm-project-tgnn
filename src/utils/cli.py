@@ -67,11 +67,34 @@ def link_gru4rec_num_embeddings(data_cfg: Any, model_cfg: Any) -> None:
     _set_init_arg(model_cfg, "num_embeddings", gru4rec_vocab_size(load_meta(processed_dir)))
 
 
+def link_tgn_num_items(data_cfg: Any, model_cfg: Any) -> None:
+    """Set TGN ``num_items`` and train session count from artifacts."""
+    processed_dir = _resolve_processed_dir(data_cfg)
+    if processed_dir is None:
+        return
+
+    from src.artifacts import load_meta, tgn_num_items
+    from src.models.tgn.dataset import load_events_tensors
+    from src.artifacts.paths import split_events_path
+
+    meta = load_meta(processed_dir)
+    _set_init_arg(model_cfg, "num_items", tgn_num_items(meta))
+    train_events = load_events_tensors(split_events_path(processed_dir, "train"))
+    max_sessions = train_events.num_sessions
+    for split in ("val", "test_internal", "challenge_test"):
+        path = split_events_path(processed_dir, split)
+        if path.is_file():
+            max_sessions = max(max_sessions, load_events_tensors(path).num_sessions)
+    _set_init_arg(model_cfg, "num_sessions_train", max_sessions)
+
+
 def link_model_config_from_meta(data_cfg: Any, model_cfg: Any) -> None:
     """Link model hyperparameters from artifacts based on the configured model class."""
     model_class = str(_nested_get(model_cfg, "class_path") or "").lower()
     if "gru4rec" in model_class or "tagnn" in model_class:
         link_gru4rec_num_embeddings(data_cfg, model_cfg)
+    if "tgn" in model_class:
+        link_tgn_num_items(data_cfg, model_cfg)
 
 
 def infer_model_name(data_cfg: Any) -> str:

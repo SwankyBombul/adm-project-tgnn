@@ -1,0 +1,22 @@
+# TGN smoke run (CPU, 1 epoch, no W&B)
+trainer:
+  max_epochs: 1
+  accelerator: cpu
+  limit_train_batches: 5
+  limit_val_batches: 2
+  limit_test_batches: 2
+  logger: false
+  callbacks: []
+
+data:
+  init_args:
+    event_batch_size: 32
+    example_batch_size: 8
+    num_workers: 0
+
+model:
+  init_args:
+    memory_dim: 32
+    time_dim: 16
+    embedding_dim: 32
+    n_neighbors: 2

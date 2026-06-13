@@ -217,6 +217,34 @@ uv run python -m src.main evaluate `
   --ckpt_path best
 ```
 
+**TGN** (PyG, `loss_mode`: `bce` lub `ce`; ewaluacja zawsze ranking po pełnym katalogu):
+
+```powershell
+# BCE (trening na strumieniu zdarzeń — jak papier TGN)
+uv run python -m src.main fit `
+  -c config/data/tgn_yoochoose.yaml `
+  -c config/model/tgn.yaml `
+  -c config/experiments/tgn_bce_baseline.yaml
+
+# CE (ten sam loss co GRU4Rec/TAGNN przy treningu)
+uv run python -m src.main fit `
+  -c config/data/tgn_yoochoose.yaml `
+  -c config/model/tgn.yaml `
+  -c config/experiments/tgn_ce_baseline.yaml
+
+# smoke (CPU, 5 batchy treningu, bez W&B)
+uv run python -m src.main fit `
+  -c config/data/tgn_yoochoose.yaml `
+  -c config/model/tgn.yaml `
+  -c config/experiments/tgn_smoke.yaml
+
+uv run python -m src.main evaluate `
+  -c config/data/tgn_yoochoose.yaml `
+  -c config/model/tgn.yaml `
+  -c config/experiments/tgn_bce_baseline.yaml `
+  --ckpt_path best
+```
+
 Ewaluacja po treningu (oba zbiory testowe, osobne prefiksy metryk w W&B):
 
 ```powershell
@@ -237,6 +265,10 @@ saved_models/
 │       └── config.yaml
 └── tagnn/
     └── tagnn-baseline/
+        ├── best.ckpt
+        └── config.yaml
+└── tgn/
+    └── tgn-bce-baseline/
         ├── best.ckpt
         └── config.yaml
 ```
@@ -269,8 +301,9 @@ adm-project-tgnn/
 │   ├── preprocessing/            # pipeline danych (load → export)
 │   ├── models/
 │   │   ├── gru4rec/              # model + dataset + LightningModule
-│   │   └── tagnn/                # TAGNN (port CRIPAC-DIG/TAGNN)
-│   ├── data_modules/             # LightningDataModule (GRU4Rec, …)
+│   │   ├── tagnn/                # TAGNN (port CRIPAC-DIG/TAGNN)
+│   │   └── tgn/                  # TGN (PyG TGNMemory + dual CE/BCE loss)
+│   ├── data_modules/             # LightningDataModule (GRU4Rec, TAGNN, TGN)
 │   ├── training/                 # NextItemLitModule, saved_models paths
 │   ├── main.py                   # LightningCLI: fit / evaluate
 │   ├── evaluation/               # metryki i baseline'y
@@ -310,6 +343,7 @@ Projekt używa **uv**. Główne pakiety (`pyproject.toml`):
 | Dane / API | `kaggle`, `python-dotenv` |
 | Analiza i ML | `numpy`, `pandas`, `pyarrow`, `scikit-learn`, `torch` (CUDA 12.6 na Linux/Windows) |
 | Eksperymenty | `jupyter`, `matplotlib`, `ipykernel`, `lightning`, `wandb` |
+| Grafy temporalne | `torch-geometric` |
 
 **PyTorch + CUDA:** na Windows i Linux `uv sync` instaluje `torch` z indeksu PyTorch (`cu126`). macOS dostaje build CPU z PyPI. Po instalacji sprawdź GPU:
 
@@ -337,6 +371,11 @@ Eksperymenty i domyślne parametry trzymamy w plikach YAML w katalogu `config/`:
 | `config/model/tagnn.yaml` | LightningModule TAGNN |
 | `config/experiments/tagnn_baseline.yaml` | TAGNN baseline (W&B, 10 epok) |
 | `config/experiments/tagnn_smoke.yaml` | TAGNN smoke (CPU, 1 epoka) |
+| `config/data/tgn_yoochoose.yaml` | LightningDataModule TGN |
+| `config/model/tgn.yaml` | LightningModule TGN (`loss_mode`: ce/bce) |
+| `config/experiments/tgn_bce_baseline.yaml` | TGN BCE baseline (W&B, 10 epok) |
+| `config/experiments/tgn_ce_baseline.yaml` | TGN CE baseline (W&B, 10 epok) |
+| `config/experiments/tgn_smoke.yaml` | TGN smoke (CPU, limit batches) |
 
 Ścieżki w YAML są względne do roota repozytorium (`data/processed`, `data/raw`).
 
@@ -353,9 +392,9 @@ Eksperymenty i domyślne parametry trzymamy w plikach YAML w katalogu `config/`:
 | Preprocessing (subsample, split, vocab, eksport GRU/TAGNN/TGN) | `src/preprocessing/` |
 | Baseline GRU4Rec (fit + evaluate, W&B, `saved_models/`) | `src/main.py`, `src/training/`, `config/` |
 | Baseline TAGNN (fit + evaluate, port SIGIR 2020) | `src/models/tagnn/`, `config/data/tagnn_yoochoose.yaml` |
+| TGN (PyG, CE + BCE, fit + evaluate) | `src/models/tgn/`, `config/data/tgn_yoochoose.yaml` |
 | Metryki rankingowe + POP@20 baseline | `src/evaluation/` |
 | Ustawienia W&B | `src/config/wandb_settings.py` |
-| TGN | planowane |
 
 Wyniki treningów GRU4Rec: [W&B — adm-project-tgnn](https://wandb.ai/project-nn/adm-project-tgnn).
 

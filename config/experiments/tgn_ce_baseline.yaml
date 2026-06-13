@@ -1,0 +1,15 @@
+# TGN CE baseline (W&B, 10 epochs) — same ranking metrics as GRU4Rec/TAGNN
+trainer:
+  max_epochs: 10
+  logger:
+    init_args:
+      name: tgn-ce-baseline
+      tags: [baseline, tgn, ce]
+
+data:
+  init_args:
+    loss_mode: ce
+
+model:
+  init_args:
+    loss_mode: ce

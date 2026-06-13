@@ -1,0 +1,14 @@
+# TGN LightningModule (num_items linked from data module)
+model:
+  class_path: src.models.tgn.module.TGNLitModule
+  init_args:
+    num_items: 0
+    num_sessions_train: 0
+    loss_mode: bce
+    num_negatives: 1
+    memory_dim: 172
+    time_dim: 100
+    embedding_dim: 100
+    n_neighbors: 10
+    learning_rate: 0.0001
+    compute_pop_baseline: true

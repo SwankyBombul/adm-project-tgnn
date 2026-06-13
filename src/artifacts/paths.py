@@ -25,3 +25,11 @@ def split_examples_path(
     if model == "tgn":
         return split_dir / "tgn" / "examples.parquet"
     raise ValueError(f"Unsupported model format: {model}")
+
+
+def split_events_path(
+    processed_dir: Path,
+    split: SplitName,
+) -> Path:
+    """Path to TGN temporal event stream for a split."""
+    return processed_dir / split / "tgn" / "events.parquet"

@@ -10,7 +10,7 @@ from torch import Tensor
 from torch.utils.data import DataLoader
 
 from src.artifacts import load_meta
-from src.artifacts.vocab import load_gru_item2idx
+from src.artifacts.vocab import load_gru_item2idx, load_tgn_item2idx
 
 
 def popularity_top_k(meta: dict[str, Any], k: int = 20) -> list[int]:
@@ -20,6 +20,17 @@ def popularity_top_k(meta: dict[str, Any], k: int = 20) -> list[int]:
     if len(top_ids) < k:
         raise ValueError(f"meta.json only stores {len(top_ids)} popular items, requested k={k}")
     return list(top_ids[:k])
+
+
+def popularity_top_k_tgn_indices(processed_dir: Path, k: int = 20) -> list[int]:
+    """Map global popularity baseline IDs to TGN item indices."""
+    meta = load_meta(processed_dir)
+    item2idx = load_tgn_item2idx(processed_dir / "vocab")
+    indices: list[int] = []
+    for raw_id in popularity_top_k(meta, k=k):
+        if raw_id in item2idx:
+            indices.append(item2idx[raw_id])
+    return indices
 
 
 def popularity_top_k_gru_indices(processed_dir: Path, k: int = 20) -> list[int]:
@@ -53,7 +64,10 @@ def evaluate_pop_baseline(
     all_targets: list[Tensor] = []
 
     for batch in dataloader:
-        targets = batch[-1]
+        if hasattr(batch, "target_item_idx_tgn"):
+            targets = batch.target_item_idx_tgn
+        else:
+            targets = batch[-1]
         if not isinstance(targets, Tensor):
             raise TypeError(f"Expected target tensor as last batch element, got {type(targets)}")
         all_targets.append(targets.to(device))

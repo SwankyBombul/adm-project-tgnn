@@ -61,6 +61,8 @@ class TGNModel(nn.Module):
         self.decoder = LinkDecoder(embedding_dim)
         self._neighbor_loader: LastNeighborLoader | None = None
         self._replay = TGNReplayState()
+        self._edge_t = torch.zeros(0, dtype=torch.long)
+        self._edge_msg = torch.zeros(0, msg_dim)
 
     @property
     def device(self) -> torch.device:
@@ -97,6 +99,31 @@ class TGNModel(nn.Module):
         self.memory.reset_state()
         self._neighbor_loader_for_device().reset_state()
         self._replay = TGNReplayState()
+        dev = self.device
+        self._edge_t = torch.zeros(0, dtype=torch.long, device=dev)
+        self._edge_msg = torch.zeros(0, self.msg_dim, device=dev)
+
+    def _append_edge_store(self, t_sec: Tensor, msg: Tensor) -> None:
+        """Store per-interaction attrs indexed by ``LastNeighborLoader`` edge ids."""
+        t = self._memory_time(t_sec)
+        self._edge_t = torch.cat([self._edge_t, t])
+        self._edge_msg = torch.cat([self._edge_msg, msg])
+
+    def _check_batch_indices(
+        self,
+        session_idx: Tensor,
+        item_idx_tgn: Tensor,
+    ) -> None:
+        if session_idx.numel() and int(session_idx.max().item()) >= self.num_sessions:
+            raise ValueError(
+                f"session_idx max {int(session_idx.max().item())} >= num_sessions "
+                f"{self.num_sessions}"
+            )
+        if item_idx_tgn.numel() and int(item_idx_tgn.max().item()) >= self.num_items:
+            raise ValueError(
+                f"item_idx_tgn max {int(item_idx_tgn.max().item())} >= num_items "
+                f"{self.num_items}"
+            )
 
     def detach_memory(self) -> None:
         self.memory.detach()
@@ -111,24 +138,16 @@ class TGNModel(nn.Module):
     def _compute_embeddings(self, n_id: Tensor) -> Tensor:
         neighbor_loader = self._neighbor_loader_for_device()
         all_id, edge_index, e_id = neighbor_loader(n_id)
+        assoc = torch.empty(self._num_nodes, dtype=torch.long, device=self.device)
+        assoc[all_id] = torch.arange(all_id.size(0), device=self.device)
         z, last_update = self.memory(all_id)
         if edge_index.numel() == 0:
             out = self.mem_to_emb(z)
         else:
-            msg = torch.zeros(
-                edge_index.size(1), self.msg_dim, device=self.device, dtype=z.dtype
-            )
-            assoc = self.memory._assoc
-            src_local = assoc[edge_index[0]]
-            t = last_update[src_local].to(dtype=z.dtype)
-            out = self.gnn(z, last_update, edge_index, t, msg)
-        id_to_pos = {int(node.item()): pos for pos, node in enumerate(all_id)}
-        positions = torch.tensor(
-            [id_to_pos[int(node.item())] for node in n_id],
-            device=n_id.device,
-            dtype=torch.long,
-        )
-        return out[positions]
+            edge_t = self._edge_t[e_id].to(dtype=z.dtype)
+            edge_msg = self._edge_msg[e_id]
+            out = self.gnn(z, last_update, edge_index, edge_t, edge_msg)
+        return out[assoc[n_id]]
 
     def _embed_nodes(self, node_ids: Tensor) -> Tensor:
         unique_ids, inverse = node_ids.unique(return_inverse=True)
@@ -162,9 +181,11 @@ class TGNModel(nn.Module):
         t_sec: Tensor,
         msg: Tensor,
     ) -> None:
+        self._check_batch_indices(session_idx, item_idx_tgn)
         src, dst = self._global_endpoints(session_idx, item_idx_tgn)
         t = self._memory_time(t_sec)
         self.memory.update_state(src, dst, t, msg)
+        self._append_edge_store(t_sec, msg)
         self._neighbor_loader_for_device().insert(src, dst)
 
     def replay_events_up_to(

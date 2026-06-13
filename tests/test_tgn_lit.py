@@ -62,8 +62,29 @@ def test_tgn_lit_eval_logits_shape(tmp_path: Path) -> None:
         memory_dim=32,
         time_dim=16,
         n_neighbors=2,
+        fast_eval=True,
     )
     module.set_event_tensors(eval_events=events)
     logits, targets = module.compute_logits_and_targets(_example_batch())
     assert logits.shape == (2, 5)
     assert targets.tolist() == [2, 4]
+
+
+def test_tgn_fast_eval_matches_shapes(tmp_path: Path) -> None:
+    processed = write_tgn_processed_dir(tmp_path)
+    events = load_events_tensors(processed / "val" / "tgn" / "events.parquet")
+    module = TGNLitModule(
+        num_items=5,
+        num_sessions_train=2,
+        loss_mode="bce",
+        embedding_dim=16,
+        memory_dim=32,
+        time_dim=16,
+        n_neighbors=2,
+    )
+    module.set_event_tensors(train_events=events, eval_events=events)
+    module.model.reset_state()
+    batch = _example_batch()
+    full_logits, _ = module.model.forward_eval_batch(batch, events, fast_eval=False)
+    fast_logits, _ = module.model.forward_eval_batch(batch, events, fast_eval=True)
+    assert full_logits.shape == fast_logits.shape == (2, 5)

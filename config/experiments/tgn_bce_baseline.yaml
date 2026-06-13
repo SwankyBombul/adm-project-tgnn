@@ -1,6 +1,7 @@
 # TGN BCE baseline (W&B, 10 epochs)
 trainer:
   max_epochs: 10
+  num_sanity_val_steps: 0
   logger:
     init_args:
       name: tgn-bce-baseline

@@ -12,10 +12,15 @@ from torch import Tensor
 from src.evaluation.baselines import popularity_top_k_tgn_indices
 from src.evaluation.metrics import DEFAULT_KS
 from src.models.tgn.dataset import TGNEventTensors, TGNExampleBatch, load_events_tensors
+from lightning.pytorch.utilities import rank_zero_info
+
 from src.models.tgn.model import TGNModel
 from src.training.base_module import NextItemLitModule
 
 LossMode = Literal["ce", "bce"]
+
+# Replay train events in chunks during eval warmup (avoids huge tensors + shows progress).
+_WARMUP_CHUNK_EVENTS = 10_000
 
 
 class TGNLitModule(NextItemLitModule):
@@ -30,6 +35,7 @@ class TGNLitModule(NextItemLitModule):
         time_dim: int = 100,
         embedding_dim: int = 100,
         n_neighbors: int = 10,
+        item_embed_chunk_size: int = 512,
         learning_rate: float = 1e-4,
         metric_ks: tuple[int, ...] = DEFAULT_KS,
         pop_baseline_metrics: dict[str, float] | None = None,
@@ -51,6 +57,7 @@ class TGNLitModule(NextItemLitModule):
             time_dim=time_dim,
             embedding_dim=embedding_dim,
             n_neighbors=n_neighbors,
+            item_embed_chunk_size=item_embed_chunk_size,
         )
         self._train_events: TGNEventTensors | None = None
         self._eval_events: TGNEventTensors | None = None
@@ -68,6 +75,12 @@ class TGNLitModule(NextItemLitModule):
 
     def on_train_epoch_start(self) -> None:
         self.model.reset_state()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    def on_validation_epoch_end(self) -> None:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def on_fit_start(self) -> None:
         super().on_fit_start()
@@ -95,11 +108,21 @@ class TGNLitModule(NextItemLitModule):
 
     def _warmup_for_eval(self) -> None:
         self.model.reset_state()
-        if self._train_events is not None:
-            self.model.replay_events_up_to(
-                self._train_events,
-                int(self._train_events.event_id.max().item()),
-            )
+        if self._train_events is None:
+            return
+        max_eid = int(self._train_events.event_id.max().item())
+        if max_eid < 0:
+            return
+        rank_zero_info(
+            f"TGN eval warmup: replaying {max_eid + 1:,} train events "
+            f"(chunk size {_WARMUP_CHUNK_EVENTS:,})..."
+        )
+        pos = 0
+        while pos <= max_eid:
+            end = min(pos + _WARMUP_CHUNK_EVENTS - 1, max_eid)
+            self.model.replay_events_up_to(self._train_events, end)
+            rank_zero_info(f"TGN eval warmup: {end + 1:,} / {max_eid + 1:,} events")
+            pos = end + 1
 
     def compute_logits_and_targets(
         self,
@@ -138,7 +161,7 @@ class TGNLitModule(NextItemLitModule):
         return loss
 
     def on_train_batch_end(self, outputs: Any, batch: Any, batch_idx: int) -> None:
-        if self.loss_mode == "bce":
+        if self.loss_mode in ("bce", "ce"):
             self.model.detach_memory()
 
     def on_validation_model_eval(self) -> None:

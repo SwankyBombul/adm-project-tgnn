@@ -33,12 +33,14 @@ class TGNModel(nn.Module):
         embedding_dim: int = 100,
         msg_dim: int = 4,
         n_neighbors: int = 10,
+        item_embed_chunk_size: int = 512,
     ) -> None:
         super().__init__()
         self.num_items = num_items
         self.num_sessions = num_sessions
         self.n_neighbors = n_neighbors
         self.msg_dim = msg_dim
+        self.item_embed_chunk_size = item_embed_chunk_size
         self._num_nodes = num_nodes(num_items, num_sessions)
 
         self.memory = SafeTGNMemory(
@@ -137,6 +139,22 @@ class TGNModel(nn.Module):
         item_ids = item_global_ids(self.num_items, device=self.device)
         return self._compute_embeddings(item_ids)
 
+    def _score_full_catalog(self, session_emb: Tensor) -> Tensor:
+        """Full-catalog logits without embedding all items in one forward pass."""
+        batch_size = session_emb.size(0)
+        logits = session_emb.new_empty(batch_size, self.num_items)
+        item_ids = item_global_ids(self.num_items, device=self.device)
+        chunk_size = self.item_embed_chunk_size
+        for start in range(0, self.num_items, chunk_size):
+            end = min(self.num_items, start + chunk_size)
+            chunk_emb = self._compute_embeddings(item_ids[start:end])
+            logits[:, start:end] = self.decoder.score_all_items(
+                session_emb,
+                chunk_emb,
+                chunk_size=chunk_emb.size(0),
+            )
+        return logits
+
     def _update_from_tensors(
         self,
         session_idx: Tensor,
@@ -214,10 +232,11 @@ class TGNModel(nn.Module):
             prefix_end = int(batch.prefix_last_event_id[i].item())
             self.replay_events_up_to(events, prefix_end)
             session_emb = self._session_embeddings(batch.session_idx[i : i + 1])
-            item_emb = self._item_embeddings()
-            logits_list.append(self.decoder.score_all_items(session_emb, item_emb))
+            logits_list.append(self._score_full_catalog(session_emb))
             target_eid = int(batch.target_event_id[i].item())
             self.replay_events_up_to(events, target_eid)
+            if self.training:
+                self.detach_memory()
         return torch.cat(logits_list, dim=0), targets
 
     def forward_eval_batch(
@@ -233,6 +252,5 @@ class TGNModel(nn.Module):
                 prefix_end = int(batch.prefix_last_event_id[i].item())
                 self.replay_events_up_to(events, prefix_end)
                 session_emb = self._session_embeddings(batch.session_idx[i : i + 1])
-                item_emb = self._item_embeddings()
-                logits_list.append(self.decoder.score_all_items(session_emb, item_emb))
+                logits_list.append(self._score_full_catalog(session_emb))
         return torch.cat(logits_list, dim=0), targets

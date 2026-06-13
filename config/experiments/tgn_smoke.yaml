@@ -2,6 +2,7 @@
 trainer:
   max_epochs: 1
   accelerator: cpu
+  num_sanity_val_steps: 0
   limit_train_batches: 5
   limit_val_batches: 2
   limit_test_batches: 2

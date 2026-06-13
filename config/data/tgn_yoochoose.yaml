@@ -4,6 +4,7 @@ data:
   init_args:
     processed_dir: data/processed/subsample_1_32_clicks_only
     event_batch_size: 200
-    example_batch_size: 256
+    # CE/val score the full item catalog per example — keep batches small.
+    example_batch_size: 32
     num_workers: 0
     loss_mode: bce

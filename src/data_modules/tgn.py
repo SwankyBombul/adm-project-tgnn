@@ -32,7 +32,7 @@ class TGNDataModule(pl.LightningDataModule):
         processed_dir: str | Path,
         *,
         event_batch_size: int = 200,
-        example_batch_size: int = 256,
+        example_batch_size: int = 32,
         num_workers: int = 0,
         pin_memory: bool | None = None,
         loss_mode: str = "bce",

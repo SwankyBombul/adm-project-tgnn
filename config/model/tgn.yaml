@@ -10,5 +10,6 @@ model:
     time_dim: 100
     embedding_dim: 100
     n_neighbors: 10
+    item_embed_chunk_size: 256
     learning_rate: 0.0001
     compute_pop_baseline: true

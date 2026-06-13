@@ -21,8 +21,8 @@ Thumbs.db
 /data/
 *.dat
 
-# Training artifacts (checkpoints, W&B, Lightning logs)
-/checkpoints/
+# Training artifacts (saved models, W&B, Lightning logs)
+/saved_models/
 /lightning_logs/
 wandb/
 *.ckpt

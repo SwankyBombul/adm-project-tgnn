@@ -78,11 +78,11 @@ Opcjonalnie (rozszerzenie): plik zakupów (`yoochoose-buys.dat`) jako drugi typ 
 2. **Multigraf / typy zdarzeń** — clicks vs buys jako różne typy krawędzi (opcjonalnie).
 3. **Cechy krawędzi** — Category, Price, Quantity → wejście do message function i temporal attention.
 4. **Indukcja / cold start** — nowe sesje w teście (`yoochoose-test.dat`); TGN inicjalizuje pamięć zerami i buduje reprezentację „w locie”.
-5. **Skala** — dziesiątki milionów kliknięć → w Colab planujemy **chronologiczne podpróbkowanie** (np. 1/32–1/64 zbioru) z zachowaniem struktury sesji.
+5. **Skala** — dziesiątki milionów kliknięć → stosujemy **chronologiczne podpróbkowanie** (np. 1/32 zbioru) z zachowaniem struktury sesji.
 
 ### 2.3 Przygotowanie danych (wspólny pipeline)
 
-1. **Podpróbkowanie** — losowa/chronologiczna frakcja (np. 5–10% lub 1/64) pod RAM Colaba.  
+1. **Podpróbkowanie** — chronologiczna frakcja (np. 1/32) pod lokalne RAM/GPU.  
 2. **Podział chronologiczny** — np. 70% / 15% / 15% czasu (train / val / test);.  
 3. **Mapowanie ID** — Session ID i Item ID → indeksy $0 \ldots N-1$.  
 4. **Timestamp** — konwersja do skalarów (sekundy/ms od początku zbioru).  
@@ -115,7 +115,7 @@ Pięć modułów TGN (zgodnie z literaturą Rossi et al.):
 |-------|-------------------|--------------|
 | **Memory** | Wektor stanu $s_i(t)$ per węzeł; init = 0 | Długoterminowa kompresja historii |
 | **Message function** | **Identity** (konkatenacja stanu, $\Delta t$, cech krawędzi) | Proste, skuteczne na start |
-| **Message aggregator** | **Last** (najświeższa wiadomość w batchu) | Szybkość w Colab vs mean |
+| **Message aggregator** | **Last** (najświeższa wiadomość w batchu) | Szybszy trening vs mean |
 | **Memory updater** | **GRU** | Dobry kompromis jakość / koszt |
 | **Embedding** | **1-warstwowa Temporal Graph Attention** | Walka ze *memory staleness*; sąsiedzi dostarczają świeży kontekst gdy węzeł nieaktualizowany |
 

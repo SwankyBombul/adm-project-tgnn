@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any
+from pathlib import Path
 
-import lightning.pytorch as pl
 import torch
-from torch import Tensor, nn
+from torch import Tensor
 
-from src.evaluation.baselines import evaluate_pop_baseline, popularity_top_k_gru_indices
-from src.evaluation.metrics import DEFAULT_KS, batch_ranking_metrics
+from src.evaluation.baselines import popularity_top_k_gru_indices
+from src.evaluation.metrics import DEFAULT_KS
 from src.models.gru4rec.model import GRU4Rec
+from src.training.base_module import NextItemLitModule
 
 
-class GRU4RecLitModule(pl.LightningModule):
+class GRU4RecLitModule(NextItemLitModule):
     def __init__(
         self,
         num_embeddings: int,
@@ -27,9 +27,13 @@ class GRU4RecLitModule(pl.LightningModule):
         pop_baseline_metrics: dict[str, float] | None = None,
         compute_pop_baseline: bool = True,
     ) -> None:
-        super().__init__()
+        super().__init__(
+            learning_rate=learning_rate,
+            metric_ks=metric_ks,
+            pop_baseline_metrics=pop_baseline_metrics,
+            compute_pop_baseline=compute_pop_baseline,
+        )
         self.save_hyperparameters(ignore=("pop_baseline_metrics",))
-        self.compute_pop_baseline = compute_pop_baseline
         self.model = GRU4Rec(
             num_embeddings=num_embeddings,
             embedding_dim=embedding_dim,
@@ -38,71 +42,16 @@ class GRU4RecLitModule(pl.LightningModule):
             dropout=dropout,
             pad_idx=pad_idx,
         )
-        self.learning_rate = learning_rate
-        self.metric_ks = metric_ks
-        self.pop_baseline_metrics = pop_baseline_metrics or {}
-        self.loss_fn = nn.CrossEntropyLoss()
 
     def forward(self, item_ids: Tensor, lengths: Tensor) -> Tensor:
         return self.model(item_ids, lengths)
 
-    def _shared_step(self, batch: tuple[Tensor, Tensor, Tensor]) -> tuple[Tensor, Tensor, Tensor]:
+    def compute_logits_and_targets(
+        self,
+        batch: tuple[Tensor, Tensor, Tensor],
+    ) -> tuple[Tensor, Tensor]:
         item_ids, lengths, targets = batch
-        logits = self(item_ids, lengths)
-        loss = self.loss_fn(logits, targets)
-        return loss, logits, targets
+        return self(item_ids, lengths), targets
 
-    def on_fit_start(self) -> None:
-        if not self.compute_pop_baseline or self.pop_baseline_metrics:
-            return
-        from src.data_modules.gru4rec import GRU4RecDataModule
-
-        datamodule = self.trainer.datamodule
-        if not isinstance(datamodule, GRU4RecDataModule):
-            return
-        pop_indices = popularity_top_k_gru_indices(datamodule.processed_dir, k=20)
-        self.pop_baseline_metrics = evaluate_pop_baseline(
-            datamodule.val_dataloader(),
-            pop_indices,
-            ks=(5, 10, 20),
-        )
-
-    def training_step(
-        self,
-        batch: tuple[Tensor, Tensor, Tensor],
-        batch_idx: int,
-    ) -> Tensor:
-        loss, _, _ = self._shared_step(batch)
-        self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
-        perplexity = torch.exp(loss.detach().clamp(max=20.0))
-        self.log("train/perplexity", perplexity, on_step=False, on_epoch=True)
-        return loss
-
-    def validation_step(
-        self,
-        batch: tuple[Tensor, Tensor, Tensor],
-        batch_idx: int,
-    ) -> None:
-        loss, logits, targets = self._shared_step(batch)
-        batch_size = targets.size(0)
-
-        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True, batch_size=batch_size)
-        val_perplexity = torch.exp(loss.detach().clamp(max=20.0))
-        self.log(
-            "val/perplexity",
-            val_perplexity,
-            on_step=False,
-            on_epoch=True,
-            batch_size=batch_size,
-        )
-
-        for name, value in batch_ranking_metrics(logits, targets, self.metric_ks).items():
-            log_name = f"val/{name}"
-            self.log(log_name, value, on_step=False, on_epoch=True, batch_size=batch_size)
-
-    def on_validation_epoch_end(self) -> None:
-        for name, value in self.pop_baseline_metrics.items():
-            self.log(f"val/{name}", value, prog_bar=name == "recall@20_pop")
-
-    def configure_optimizers(self) -> Any:
-        return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+    def popularity_indices(self, processed_dir: Path) -> list[int]:
+        return popularity_top_k_gru_indices(processed_dir, k=self.pop_baseline_k)

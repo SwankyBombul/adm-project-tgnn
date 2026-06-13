@@ -18,7 +18,10 @@ def split_examples_path(
     if model == "gru4rec":
         return split_dir / "gru4rec_examples.parquet"
     if model == "tagnn":
-        return split_dir / "tagnn_examples.pkl"
+        pkl_path = split_dir / "tagnn_examples.pkl"
+        if pkl_path.is_file():
+            return pkl_path
+        return split_dir / "tagnn_examples.parquet"
     if model == "tgn":
         return split_dir / "tgn" / "examples.parquet"
     raise ValueError(f"Unsupported model format: {model}")

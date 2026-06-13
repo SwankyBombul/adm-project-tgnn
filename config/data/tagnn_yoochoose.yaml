@@ -1,0 +1,8 @@
+# TAGNN data module — subsample 1/32 clicks-only variant
+data:
+  class_path: src.data_modules.tagnn.TAGNNDataModule
+  init_args:
+    processed_dir: data/processed/subsample_1_32_clicks_only
+    batch_size: 256
+    num_workers: 0  # required on Windows; auto-forced in TAGNNDataModule
+    max_seq_len: 50

@@ -1,0 +1,7 @@
+# Full TAGNN baseline run (W&B, 10 epochs)
+trainer:
+  max_epochs: 2
+  logger:
+    init_args:
+      name: tagnn-baseline
+      tags: [baseline, tagnn]

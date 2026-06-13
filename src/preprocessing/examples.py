@@ -96,7 +96,7 @@ def iter_examples_for_split(
                 "example_id": example_id,
                 "split": split_name,
                 "session_id": int(session_id),
-                "item_ids": history_item_idx + [target_item_idx],
+                "item_ids": history_item_idx,
                 "target_item_idx": target_item_idx,
                 "history_len": len(history_item_idx),
             }

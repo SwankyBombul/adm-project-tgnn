@@ -8,20 +8,21 @@ trainer:
   devices: 1
   enable_progress_bar: true
   log_every_n_steps: 50
-  default_root_dir: checkpoints/gru4rec
+  default_root_dir: saved_models/gru4rec
 
   logger:
     class_path: lightning.pytorch.loggers.WandbLogger
     init_args:
       project: adm-project-tgnn
       entity: project-nn
-      save_dir: checkpoints/gru4rec
+      save_dir: saved_models/gru4rec
       log_model: false
 
   callbacks:
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
-        filename: best-epoch_{epoch:03d}
+        dirpath: null
+        filename: best
         monitor: val/recall@20
         mode: max
         save_top_k: 1

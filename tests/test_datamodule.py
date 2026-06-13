@@ -33,8 +33,12 @@ def _make_processed_dir(tmp_path: Path) -> Path:
         {"history_item_idx": [4], "target_item_idx": 5},
     ]
     val_rows = [{"history_item_idx": [1], "target_item_idx": 2}]
+    test_internal_rows = [{"history_item_idx": [2, 3], "target_item_idx": 4}]
+    challenge_rows = [{"history_item_idx": [5], "target_item_idx": 6}]
     _write_gru4rec_split(processed, "train", train_rows)
     _write_gru4rec_split(processed, "val", val_rows)
+    _write_gru4rec_split(processed, "test_internal", test_internal_rows)
+    _write_gru4rec_split(processed, "challenge_test", challenge_rows)
     return processed
 
 
@@ -50,3 +54,17 @@ def test_gru4rec_datamodule_vocab_size_and_loaders(tmp_path: Path) -> None:
     assert train_batch[0].shape[0] <= 2
     assert train_batch[2].shape[0] == train_batch[0].shape[0]
     assert val_batch[2].shape[0] == val_batch[0].shape[0]
+
+
+def test_gru4rec_datamodule_test_dataloaders(tmp_path: Path) -> None:
+    processed = _make_processed_dir(tmp_path)
+    dm = GRU4RecDataModule(processed_dir=processed, batch_size=2, num_workers=0)
+    dm.setup("test")
+
+    loaders = dm.test_dataloader()
+    assert len(loaders) == 2
+
+    internal_batch = next(iter(loaders[0]))
+    challenge_batch = next(iter(loaders[1]))
+    assert internal_batch[2].shape[0] == internal_batch[0].shape[0]
+    assert challenge_batch[2].shape[0] == challenge_batch[0].shape[0]

@@ -1,4 +1,4 @@
-"""Team Weights & Biases defaults for Colab and local training."""
+"""Team Weights & Biases defaults for local training."""
 
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ def _collect_viewer_entities(viewer: Any) -> set[str]:
 
 
 def login_wandb(*, relogin: bool = False) -> bool:
-    """Authenticate with Weights & Biases (interactive in Colab if needed)."""
+    """Authenticate with Weights & Biases."""
     import wandb
 
     return bool(wandb.login(relogin=relogin))

@@ -30,6 +30,10 @@ class TGNEventTensors:
     def num_events(self) -> int:
         return int(self.event_id.size(0))
 
+    @property
+    def device(self) -> torch.device:
+        return self.event_id.device
+
     def slice_events(self, start: int, end: int) -> dict[str, Tensor]:
         """Inclusive ``event_id`` range ``[start, end]``."""
         mask = (self.event_id >= start) & (self.event_id <= end)
@@ -108,14 +112,18 @@ class TGNExampleDataset(Dataset[TGNExampleBatch]):
         if max_examples is not None and len(df) > max_examples:
             stride = max(len(df) // max_examples, 1)
             df = df.iloc[::stride].head(max_examples).reset_index(drop=True)
-        self._session_idx = torch.as_tensor(df["session_idx"].to_numpy(), dtype=torch.long)
-        self._target_item = torch.as_tensor(
-            df["target_item_idx_tgn"].to_numpy(), dtype=torch.long
+        self._session_idx = torch.as_tensor(
+            df["session_idx"].to_numpy(copy=True), dtype=torch.long
         )
-        self._target_t = torch.as_tensor(df["target_t_sec"].to_numpy(), dtype=torch.float32)
-        self._target_event = torch.as_tensor(df["target_event_id"].to_numpy(), dtype=torch.long)
+        self._target_item = torch.as_tensor(
+            df["target_item_idx_tgn"].to_numpy(copy=True), dtype=torch.long
+        )
+        self._target_t = torch.as_tensor(df["target_t_sec"].to_numpy(copy=True), dtype=torch.float32)
+        self._target_event = torch.as_tensor(
+            df["target_event_id"].to_numpy(copy=True), dtype=torch.long
+        )
         self._prefix_last = torch.as_tensor(
-            df["prefix_last_event_id"].to_numpy(), dtype=torch.long
+            df["prefix_last_event_id"].to_numpy(copy=True), dtype=torch.long
         )
 
     def __len__(self) -> int:

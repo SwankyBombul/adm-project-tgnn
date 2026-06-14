@@ -72,6 +72,7 @@ class TGNLitModule(NextItemLitModule):
         self._eval_events: TGNEventTensors | None = None
         self._bce_criterion = torch.nn.BCEWithLogitsLoss()
         self._skip_eval_warmup = False
+        self._train_batches_seen = 0
 
     def set_event_tensors(
         self,
@@ -87,20 +88,16 @@ class TGNLitModule(NextItemLitModule):
         self.model.reset_state()
         self.model.set_session_offset(0)
         self._skip_eval_warmup = False
+        self._train_batches_seen = 0
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
     def on_train_epoch_end(self) -> None:
-        self._skip_eval_warmup = self._trained_full_epoch()
-
-    def _trained_full_epoch(self) -> bool:
-        trainer = self.trainer
-        if trainer is None:
-            return False
-        datamodule = trainer.datamodule
-        if datamodule is None or not hasattr(datamodule, "train_event_dataset"):
-            return False
-        return trainer.num_training_batches >= len(datamodule.train_event_dataset)
+        datamodule = self.trainer.datamodule if self.trainer is not None else None
+        full_batches = 0
+        if datamodule is not None and hasattr(datamodule, "train_event_dataset"):
+            full_batches = len(datamodule.train_event_dataset)
+        self._skip_eval_warmup = full_batches > 0 and self._train_batches_seen >= full_batches
 
     def on_validation_epoch_end(self) -> None:
         super().on_validation_epoch_end()
@@ -242,6 +239,7 @@ class TGNLitModule(NextItemLitModule):
 
     def on_train_batch_end(self, outputs: Any, batch: Any, batch_idx: int) -> None:
         self.model.detach_memory()
+        self._train_batches_seen += 1
 
     def on_validation_model_eval(self) -> None:
         # Drop pending raw messages before Lightning calls model.eval().

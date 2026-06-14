@@ -129,7 +129,7 @@ def test_tgn_lit_validation_step_logs_sampled_metrics(tmp_path: Path) -> None:
         fast_eval=True,
     )
     module.set_event_tensors(train_events=events, eval_events=events)
-    module.trainer = MagicMock(global_seed=42)
+    module.trainer = MagicMock()
     module._init_validation_candidate_generator()
     module.model.reset_state()
 

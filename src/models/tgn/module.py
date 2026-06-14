@@ -99,13 +99,13 @@ class TGNLitModule(NextItemLitModule):
         if datamodule is not None and hasattr(datamodule, "attach_events_to_module"):
             datamodule.attach_events_to_module(self)
 
+    def _eval_base_seed(self) -> int:
+        if self.eval_seed is not None:
+            return int(self.eval_seed)
+        return int(torch.initial_seed())
+
     def _init_validation_candidate_generator(self) -> None:
-        base_seed = self.eval_seed
-        if base_seed is None:
-            if self.trainer is not None:
-                base_seed = int(self.trainer.global_seed)
-            else:
-                base_seed = 0
+        base_seed = self._eval_base_seed()
         generator = torch.Generator(device=self.device)
         generator.manual_seed(base_seed + int(self.current_epoch))
         self._eval_candidate_generator = generator

@@ -43,6 +43,26 @@ def test_tgn_bce_sequential_batches_no_crash() -> None:
         model.detach_memory()
 
 
+def test_tgn_bce_multi_negative_sequential_batches() -> None:
+    model = TGNModel(
+        num_items=5,
+        num_sessions=2,
+        embedding_dim=16,
+        memory_dim=32,
+        time_dim=16,
+        n_neighbors=2,
+    )
+    model.reset_state()
+    session_idx = torch.tensor([0, 1])
+    item_idx = torch.tensor([1, 2])
+    t_sec = torch.tensor([1.0, 4.0])
+    msg = torch.zeros(2, 4)
+    pos, neg = model.score_pos_neg(session_idx, item_idx, t_sec, msg, num_negatives=3)
+    assert pos.shape == (2,)
+    assert neg.shape == (2, 3)
+    model.detach_memory()
+
+
 def test_tgn_forward_eval_sampled_matches_full_catalog(tmp_path: Path) -> None:
     processed = write_tgn_processed_dir(tmp_path)
     events = load_events_tensors(processed / "train" / "tgn" / "events.parquet")

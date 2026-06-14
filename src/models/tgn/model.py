@@ -281,15 +281,20 @@ class TGNModel(nn.Module):
         """BCE training step on an event batch (memory updated after scoring)."""
         src, dst = self._global_endpoints(session_idx, item_idx_tgn)
         neg_items = sample_negative_items(item_idx_tgn, self.num_items, num_negatives)
-        _, neg_dst = self._global_endpoints(session_idx, neg_items)
         z_src = self._embed_nodes(src)
         z_dst = self._embed_nodes(dst)
         pos_logits = self.decoder(z_src, z_dst)
 
         if num_negatives == 1:
+            _, neg_dst = self._global_endpoints(session_idx, neg_items)
             neg_logits = self.decoder(z_src, self._embed_nodes(neg_dst))
         else:
-            raise NotImplementedError("num_negatives > 1 not implemented")
+            batch_size = session_idx.size(0)
+            session_expanded = session_idx.unsqueeze(1).expand(batch_size, num_negatives)
+            _, neg_dst = self._global_endpoints(session_expanded.reshape(-1), neg_items.reshape(-1))
+            z_neg = self._embed_nodes(neg_dst)
+            z_neg = z_neg.view(batch_size, num_negatives, -1)
+            neg_logits = self.decoder.score_candidates(z_src, z_neg)
 
         self._update_from_tensors(session_idx, item_idx_tgn, t_sec, msg)
         return pos_logits, neg_logits

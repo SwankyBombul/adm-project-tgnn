@@ -217,20 +217,13 @@ uv run python -m src.main evaluate `
   --ckpt_path best
 ```
 
-**TGN** (PyG, `loss_mode`: `bce` lub `ce`; ewaluacja zawsze ranking po pełnym katalogu):
+**TGN** (PyG; trening BCE na strumieniu zdarzeń; **walidacja w fit** — sampled Recall@K z `eval_num_negatives` negatywów; `evaluate` na razie pełny katalog):
 
 ```powershell
-# BCE (trening na strumieniu zdarzeń — jak papier TGN)
 uv run python -m src.main fit `
   -c config/data/tgn_yoochoose.yaml `
   -c config/model/tgn.yaml `
   -c config/experiments/tgn_bce_baseline.yaml
-
-# CE (ten sam loss co GRU4Rec/TAGNN przy treningu)
-uv run python -m src.main fit `
-  -c config/data/tgn_yoochoose.yaml `
-  -c config/model/tgn.yaml `
-  -c config/experiments/tgn_ce_baseline.yaml
 
 # smoke (CPU, 5 batchy treningu, bez W&B)
 uv run python -m src.main fit `
@@ -302,7 +295,7 @@ adm-project-tgnn/
 │   ├── models/
 │   │   ├── gru4rec/              # model + dataset + LightningModule
 │   │   ├── tagnn/                # TAGNN (port CRIPAC-DIG/TAGNN)
-│   │   └── tgn/                  # TGN (PyG TGNMemory + dual CE/BCE loss)
+│   │   └── tgn/                  # TGN (BCE train, sampled val, full-catalog test)
 │   ├── data_modules/             # LightningDataModule (GRU4Rec, TAGNN, TGN)
 │   ├── training/                 # NextItemLitModule, saved_models paths
 │   ├── main.py                   # LightningCLI: fit / evaluate
@@ -372,9 +365,9 @@ Eksperymenty i domyślne parametry trzymamy w plikach YAML w katalogu `config/`:
 | `config/experiments/tagnn_baseline.yaml` | TAGNN baseline (W&B, 10 epok) |
 | `config/experiments/tagnn_smoke.yaml` | TAGNN smoke (CPU, 1 epoka) |
 | `config/data/tgn_yoochoose.yaml` | LightningDataModule TGN |
-| `config/model/tgn.yaml` | LightningModule TGN (`loss_mode`: ce/bce) |
-| `config/experiments/tgn_bce_baseline.yaml` | TGN BCE baseline (W&B, 10 epok) |
-| `config/experiments/tgn_ce_baseline.yaml` | TGN CE baseline (W&B, 10 epok) |
+| `config/model/tgn.yaml` | LightningModule TGN (BCE training) |
+| `config/experiments/tgn_bce_baseline.yaml` | TGN baseline (W&B, 10 epok) |
+| `config/experiments/tgn_baseline.yaml` | alias `tgn-bce-baseline` |
 | `config/experiments/tgn_smoke.yaml` | TGN smoke (CPU, limit batches) |
 
 Ścieżki w YAML są względne do roota repozytorium (`data/processed`, `data/raw`).
@@ -392,7 +385,7 @@ Eksperymenty i domyślne parametry trzymamy w plikach YAML w katalogu `config/`:
 | Preprocessing (subsample, split, vocab, eksport GRU/TAGNN/TGN) | `src/preprocessing/` |
 | Baseline GRU4Rec (fit + evaluate, W&B, `saved_models/`) | `src/main.py`, `src/training/`, `config/` |
 | Baseline TAGNN (fit + evaluate, port SIGIR 2020) | `src/models/tagnn/`, `config/data/tagnn_yoochoose.yaml` |
-| TGN (PyG, CE + BCE, fit + evaluate) | `src/models/tgn/`, `config/data/tgn_yoochoose.yaml` |
+| TGN (PyG, BCE fit + full-catalog evaluate) | `src/models/tgn/`, `config/data/tgn_yoochoose.yaml` |
 | Metryki rankingowe + POP@20 baseline | `src/evaluation/` |
 | Ustawienia W&B | `src/config/wandb_settings.py` |
 

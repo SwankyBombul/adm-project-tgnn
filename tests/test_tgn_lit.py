@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import torch
 
+from src.evaluation.sampled import build_candidate_sets
 from src.models.tgn.dataset import TGNExampleBatch, load_events_tensors
 from src.models.tgn.module import TGNLitModule
 from tests.tgn_fixtures import write_tgn_processed_dir
@@ -22,7 +24,14 @@ def _example_batch() -> TGNExampleBatch:
 
 
 def test_tgn_lit_bce_training_step() -> None:
-    module = TGNLitModule(num_items=5, num_sessions_train=2, loss_mode="bce", embedding_dim=16, memory_dim=32, time_dim=16, n_neighbors=2)
+    module = TGNLitModule(
+        num_items=5,
+        num_sessions_train=2,
+        embedding_dim=16,
+        memory_dim=32,
+        time_dim=16,
+        n_neighbors=2,
+    )
     batch = {
         "session_idx": torch.tensor([0, 1]),
         "item_idx_tgn": torch.tensor([1, 2]),
@@ -33,31 +42,45 @@ def test_tgn_lit_bce_training_step() -> None:
     assert loss.ndim == 0
 
 
-def test_tgn_lit_ce_logits_shape(tmp_path: Path) -> None:
+def test_tgn_lit_sampled_validation_scores_shape(tmp_path: Path) -> None:
     processed = write_tgn_processed_dir(tmp_path)
     events = load_events_tensors(processed / "train" / "tgn" / "events.parquet")
     module = TGNLitModule(
         num_items=5,
         num_sessions_train=2,
-        loss_mode="ce",
+        eval_num_negatives=2,
+        eval_seed=0,
         embedding_dim=16,
         memory_dim=32,
         time_dim=16,
         n_neighbors=2,
+        fast_eval=True,
     )
-    module.set_event_tensors(train_events=events, eval_events=events)
-    logits, targets = module.model.forward_ce_examples(_example_batch(), events)
-    assert logits.shape == (2, 5)
+    module.set_event_tensors(eval_events=events)
+    module._eval_candidate_generator = torch.Generator().manual_seed(0)
+    module.model.reset_state()
+
+    scores, targets, candidate_ids = module.compute_sampled_scores_and_targets(_example_batch())
+    assert scores.shape == (2, 3)
+    assert candidate_ids.shape == (2, 3)
     assert targets.tolist() == [2, 4]
 
 
-def test_tgn_lit_eval_logits_shape(tmp_path: Path) -> None:
+def test_tgn_lit_sampled_candidates_reproducible() -> None:
+    targets = torch.tensor([1, 3])
+    gen_a = torch.Generator().manual_seed(7)
+    gen_b = torch.Generator().manual_seed(7)
+    first = build_candidate_sets(targets, num_items=6, num_negatives=2, generator=gen_a)
+    second = build_candidate_sets(targets, num_items=6, num_negatives=2, generator=gen_b)
+    assert torch.equal(first.ids, second.ids)
+
+
+def test_tgn_lit_full_catalog_eval_still_available(tmp_path: Path) -> None:
     processed = write_tgn_processed_dir(tmp_path)
     events = load_events_tensors(processed / "train" / "tgn" / "events.parquet")
     module = TGNLitModule(
         num_items=5,
         num_sessions_train=2,
-        loss_mode="bce",
         embedding_dim=16,
         memory_dim=32,
         time_dim=16,
@@ -76,7 +99,6 @@ def test_tgn_fast_eval_matches_shapes(tmp_path: Path) -> None:
     module = TGNLitModule(
         num_items=5,
         num_sessions_train=2,
-        loss_mode="bce",
         embedding_dim=16,
         memory_dim=32,
         time_dim=16,
@@ -90,3 +112,30 @@ def test_tgn_fast_eval_matches_shapes(tmp_path: Path) -> None:
     assert full_logits.shape == fast_logits.shape == (2, 5)
     assert full_logits.dtype == torch.float32
     assert fast_logits.dtype == torch.float32
+
+
+def test_tgn_lit_validation_step_logs_sampled_metrics(tmp_path: Path) -> None:
+    processed = write_tgn_processed_dir(tmp_path)
+    events = load_events_tensors(processed / "train" / "tgn" / "events.parquet")
+    module = TGNLitModule(
+        num_items=5,
+        num_sessions_train=2,
+        eval_num_negatives=2,
+        eval_seed=0,
+        embedding_dim=16,
+        memory_dim=32,
+        time_dim=16,
+        n_neighbors=2,
+        fast_eval=True,
+    )
+    module.set_event_tensors(train_events=events, eval_events=events)
+    module.trainer = MagicMock(global_seed=42)
+    module._init_validation_candidate_generator()
+    module.model.reset_state()
+
+    logged: dict[str, torch.Tensor] = {}
+    module.log = lambda name, value, **kwargs: logged.update({name: value})  # noqa: ARG005
+
+    module.validation_step(_example_batch(), batch_idx=0)
+    assert "val/sampled_recall@20" in logged
+    assert "val/loss" not in logged

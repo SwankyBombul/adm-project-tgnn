@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from collections.abc import Iterator
+
 import torch
 from torch import Tensor, nn
 from torch_geometric.nn.models.tgn import IdentityMessage, LastAggregator, LastNeighborLoader
@@ -188,6 +190,32 @@ class TGNModel(nn.Module):
             )
         return logits
 
+    def _iter_eval_prefix_groups(self, batch: TGNExampleBatch) -> Iterator[tuple[int, Tensor]]:
+        """Yield ``(prefix_last_event_id, row_indices)`` sorted for incremental replay."""
+        n = batch.target_item_idx_tgn.size(0)
+        order = batch.prefix_last_event_id.argsort()
+        prefixes = batch.prefix_last_event_id[order]
+        pos = 0
+        while pos < n:
+            prefix_end = int(prefixes[pos].item())
+            end = pos + 1
+            while end < n and int(prefixes[end].item()) == prefix_end:
+                end += 1
+            yield prefix_end, order[pos:end]
+            pos = end
+
+    def _embed_candidate_items(
+        self,
+        candidate_ids: Tensor,
+        *,
+        memory_only: bool,
+    ) -> Tensor:
+        """Embed candidate item indices with shape ``(batch, num_candidates, dim)``."""
+        flat = candidate_ids.reshape(-1)
+        unique_items, inverse = flat.unique(return_inverse=True)
+        emb = self._compute_embeddings(unique_items, memory_only=memory_only)
+        return emb[inverse].view(*candidate_ids.shape, emb.size(-1))
+
     def reset_replay_cursor(self) -> None:
         """Reset incremental replay position (e.g. when switching to val events)."""
         self._replay = TGNReplayState()
@@ -231,9 +259,6 @@ class TGNModel(nn.Module):
     def _session_global(self, session_idx: Tensor) -> Tensor:
         return session_global_id(session_idx, self.num_items)
 
-    def _session_embeddings(self, session_idx: Tensor) -> Tensor:
-        return self._embed_nodes(self._session_global(session_idx))
-
     def score_pos_neg(
         self,
         session_idx: Tensor,
@@ -259,25 +284,6 @@ class TGNModel(nn.Module):
         self._update_from_tensors(session_idx, item_idx_tgn, t_sec, msg)
         return pos_logits, neg_logits
 
-    def forward_ce_examples(
-        self,
-        batch: TGNExampleBatch,
-        events: TGNEventTensors,
-    ) -> tuple[Tensor, Tensor]:
-        """CE path: replay prefixes, score full catalog, then commit target events."""
-        logits_list: list[Tensor] = []
-        targets = batch.target_item_idx_tgn
-        for i in range(targets.size(0)):
-            prefix_end = int(batch.prefix_last_event_id[i].item())
-            self.replay_events_up_to(events, prefix_end)
-            session_emb = self._session_embeddings(batch.session_idx[i : i + 1])
-            logits_list.append(self._score_full_catalog(session_emb))
-            target_eid = int(batch.target_event_id[i].item())
-            self.replay_events_up_to(events, target_eid)
-            if self.training:
-                self.detach_memory()
-        return torch.cat(logits_list, dim=0), targets
-
     def forward_eval_batch(
         self,
         batch: TGNExampleBatch,
@@ -296,19 +302,9 @@ class TGNModel(nn.Module):
         )
         item_chunk = self.fast_eval_item_chunk_size if fast_eval else self.item_embed_chunk_size
 
-        order = batch.prefix_last_event_id.argsort()
-        prefixes = batch.prefix_last_event_id[order]
-
         with torch.no_grad():
-            pos = 0
-            while pos < n:
-                prefix_end = int(prefixes[pos].item())
-                end = pos + 1
-                while end < n and int(prefixes[end].item()) == prefix_end:
-                    end += 1
-
+            for prefix_end, idx in self._iter_eval_prefix_groups(batch):
                 self.replay_events_up_to(events, prefix_end)
-                idx = order[pos:end]
                 session_emb = self._compute_embeddings(
                     self._session_global(batch.session_idx[idx]),
                     memory_only=fast_eval,
@@ -318,6 +314,42 @@ class TGNModel(nn.Module):
                     memory_only_items=fast_eval,
                     item_chunk_size=item_chunk,
                 )
-                pos = end
 
         return logits, targets
+
+    def forward_eval_sampled(
+        self,
+        batch: TGNExampleBatch,
+        events: TGNEventTensors,
+        candidate_ids: Tensor,
+        *,
+        fast_eval: bool = False,
+    ) -> tuple[Tensor, Tensor]:
+        """Sampled evaluation: score only ``candidate_ids`` per row after prefix replay."""
+        if candidate_ids.size(0) != batch.target_item_idx_tgn.size(0):
+            raise ValueError("candidate_ids batch size must match the example batch")
+        targets = batch.target_item_idx_tgn
+        n = targets.size(0)
+        num_candidates = candidate_ids.size(1)
+        scores = torch.empty(
+            n,
+            num_candidates,
+            device=targets.device,
+            dtype=torch.float32,
+        )
+
+        with torch.no_grad():
+            for prefix_end, idx in self._iter_eval_prefix_groups(batch):
+                self.replay_events_up_to(events, prefix_end)
+                group_candidates = candidate_ids[idx]
+                session_emb = self._compute_embeddings(
+                    self._session_global(batch.session_idx[idx]),
+                    memory_only=fast_eval,
+                )
+                item_emb = self._embed_candidate_items(
+                    group_candidates,
+                    memory_only=fast_eval,
+                )
+                scores[idx] = self.decoder.score_candidates(session_emb, item_emb)
+
+        return scores, targets

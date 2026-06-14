@@ -4,8 +4,8 @@ model:
   init_args:
     num_items: 0
     num_sessions_train: 0
-    loss_mode: bce
     num_negatives: 1
+    eval_num_negatives: 99
     memory_dim: 172
     time_dim: 100
     embedding_dim: 100

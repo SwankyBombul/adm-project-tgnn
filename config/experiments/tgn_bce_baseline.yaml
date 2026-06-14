@@ -8,11 +8,25 @@ trainer:
     init_args:
       name: tgn-bce-baseline
       tags: [baseline, tgn, bce]
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        dirpath: null
+        filename: best
+        monitor: val/sampled_recall@20
+        mode: max
+        save_top_k: 1
+        save_last: false
+    - class_path: lightning.pytorch.callbacks.EarlyStopping
+      init_args:
+        monitor: val/sampled_recall@20
+        mode: max
+        patience: 3
 
 data:
   init_args:
-    loss_mode: bce
+    event_batch_size: 200
 
 model:
   init_args:
-    loss_mode: bce
+    num_negatives: 1

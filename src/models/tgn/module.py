@@ -1,23 +1,21 @@
-"""TGN LightningModule with configurable CE / BCE training."""
+"""TGN LightningModule: BCE training, sampled validation, full-catalog test."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import torch
-import torch.nn.functional as F
 from torch import Tensor
 
 from src.evaluation.baselines import popularity_top_k_tgn_indices
 from src.evaluation.metrics import DEFAULT_KS
+from src.evaluation.sampled import batch_sampled_ranking_metrics, build_candidate_sets
 from src.models.tgn.dataset import TGNEventTensors, TGNExampleBatch, load_events_tensors
 from lightning.pytorch.utilities import rank_zero_info
 
 from src.models.tgn.model import TGNModel
 from src.training.base_module import NextItemLitModule
-
-LossMode = Literal["ce", "bce"]
 
 # Replay train events in chunks during eval warmup (avoids huge tensors + shows progress).
 _WARMUP_CHUNK_EVENTS = 50_000
@@ -30,8 +28,9 @@ class TGNLitModule(NextItemLitModule):
         num_items: int,
         num_sessions_train: int,
         *,
-        loss_mode: LossMode = "bce",
         num_negatives: int = 1,
+        eval_num_negatives: int = 99,
+        eval_seed: int | None = None,
         memory_dim: int = 172,
         time_dim: int = 100,
         embedding_dim: int = 100,
@@ -51,10 +50,12 @@ class TGNLitModule(NextItemLitModule):
             compute_pop_baseline=compute_pop_baseline,
         )
         self.save_hyperparameters(ignore=("pop_baseline_metrics",))
-        self.loss_mode = loss_mode
         self.num_negatives = num_negatives
+        self.eval_num_negatives = eval_num_negatives
+        self.eval_seed = eval_seed
         self.fast_eval = fast_eval
-        self._reuse_bce_train_memory = False
+        self._reuse_train_memory = False
+        self._eval_candidate_generator: torch.Generator | None = None
         self.model = TGNModel(
             num_items=num_items,
             num_sessions=num_sessions_train,
@@ -81,13 +82,12 @@ class TGNLitModule(NextItemLitModule):
 
     def on_train_epoch_start(self) -> None:
         self.model.reset_state()
-        self._reuse_bce_train_memory = False
+        self._reuse_train_memory = False
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
     def on_train_epoch_end(self) -> None:
-        if self.loss_mode == "bce":
-            self._reuse_bce_train_memory = True
+        self._reuse_train_memory = True
 
     def on_validation_epoch_end(self) -> None:
         if torch.cuda.is_available():
@@ -99,15 +99,27 @@ class TGNLitModule(NextItemLitModule):
         if datamodule is not None and hasattr(datamodule, "attach_events_to_module"):
             datamodule.attach_events_to_module(self)
 
+    def _init_validation_candidate_generator(self) -> None:
+        base_seed = self.eval_seed
+        if base_seed is None:
+            if self.trainer is not None:
+                base_seed = int(self.trainer.global_seed)
+            else:
+                base_seed = 0
+        generator = torch.Generator(device=self.device)
+        generator.manual_seed(base_seed + int(self.current_epoch))
+        self._eval_candidate_generator = generator
+
     def on_validation_epoch_start(self) -> None:
         datamodule = self.trainer.datamodule
         if datamodule is not None and hasattr(datamodule, "set_eval_split"):
             datamodule.set_eval_split(self, "val")
-        if self.loss_mode == "bce" and self._reuse_bce_train_memory:
+        self._init_validation_candidate_generator()
+        if self._reuse_train_memory:
             rank_zero_info(
-                "TGN eval: reusing BCE train memory (skipping train warmup replay)"
+                "TGN eval: reusing train memory (skipping train warmup replay)"
             )
-            self._reuse_bce_train_memory = False
+            self._reuse_train_memory = False
             self.model.reset_replay_cursor()
             return
         self._warmup_for_eval()
@@ -158,25 +170,66 @@ class TGNLitModule(NextItemLitModule):
             fast_eval=self.fast_eval,
         )
 
+    def compute_sampled_scores_and_targets(
+        self,
+        batch: TGNExampleBatch,
+    ) -> tuple[Tensor, Tensor, Tensor]:
+        if self._eval_events is None:
+            raise RuntimeError("eval event tensors not set on TGNLitModule")
+        generator = self._eval_candidate_generator
+        if generator is None:
+            self._init_validation_candidate_generator()
+            generator = self._eval_candidate_generator
+        assert generator is not None
+
+        candidates = build_candidate_sets(
+            batch.target_item_idx_tgn,
+            self.model.num_items,
+            self.eval_num_negatives,
+            generator=generator,
+        )
+        scores, targets = self.model.forward_eval_sampled(
+            batch,
+            self._eval_events,
+            candidates.ids,
+            fast_eval=self.fast_eval,
+        )
+        return scores, targets, candidates.ids
+
+    def _log_sampled_split_metrics(
+        self,
+        prefix: str,
+        scores: Tensor,
+        candidate_ids: Tensor,
+        targets: Tensor,
+        batch_size: int,
+        *,
+        prog_bar_recall20: bool = False,
+    ) -> None:
+        for name, value in batch_sampled_ranking_metrics(
+            scores,
+            candidate_ids,
+            targets,
+            self.metric_ks,
+        ).items():
+            self.log(
+                f"{prefix}/sampled_{name}",
+                value,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=prog_bar_recall20 and name == "recall@20",
+                batch_size=batch_size,
+            )
+
     def popularity_indices(self, processed_dir: Path) -> list[int]:
         return popularity_top_k_tgn_indices(processed_dir, k=self.pop_baseline_k)
 
     def training_step(self, batch: Any, batch_idx: int) -> Tensor:
-        if self.loss_mode == "ce":
-            if self._eval_events is None:
-                raise RuntimeError("CE training requires train event tensors on module")
-            logits, targets = self.model.forward_ce_examples(batch, self._eval_events)
-            loss = self.compute_loss(logits, targets)
-            self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
-            self._log_perplexity("train", loss, targets.size(0))
-            return loss
-
-        event_batch = batch
         pos_logits, neg_logits = self.model.score_pos_neg(
-            event_batch["session_idx"],
-            event_batch["item_idx_tgn"],
-            event_batch["t_sec"],
-            event_batch["msg"],
+            batch["session_idx"],
+            batch["item_idx_tgn"],
+            batch["t_sec"],
+            batch["msg"],
             num_negatives=self.num_negatives,
         )
         loss = self._bce_criterion(pos_logits, torch.ones_like(pos_logits))
@@ -185,23 +238,23 @@ class TGNLitModule(NextItemLitModule):
         return loss
 
     def on_train_batch_end(self, outputs: Any, batch: Any, batch_idx: int) -> None:
-        if self.loss_mode in ("bce", "ce"):
-            self.model.detach_memory()
+        self.model.detach_memory()
 
     def on_validation_model_eval(self) -> None:
         # Drop pending raw messages before Lightning calls model.eval().
         self.model.memory._reset_message_store()
 
     def validation_step(self, batch: Any, batch_idx: int) -> None:
-        logits, targets = self.compute_logits_and_targets(batch)
-        loss = self.compute_loss(logits, targets)
-        self._log_split_metrics(
+        if not isinstance(batch, TGNExampleBatch):
+            raise TypeError(f"Expected TGNExampleBatch, got {type(batch)}")
+        scores, targets, candidate_ids = self.compute_sampled_scores_and_targets(batch)
+        self._log_sampled_split_metrics(
             "val",
-            loss,
-            logits,
+            scores,
+            candidate_ids,
             targets,
             targets.size(0),
-            prog_bar_loss=True,
+            prog_bar_recall20=True,
         )
 
     def configure_optimizers(self) -> Any:

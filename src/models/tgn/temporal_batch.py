@@ -5,7 +5,10 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
+from src.evaluation.sampled import sample_negative_items
 from src.models.tgn.dataset import TGNExampleBatch
+
+__all__ = ["sample_negative_items", "tgn_event_collate_fn", "tgn_example_collate_fn"]
 
 
 def tgn_example_collate_fn(samples: list[TGNExampleBatch]) -> TGNExampleBatch:
@@ -25,20 +28,3 @@ def tgn_event_collate_fn(batch: list[dict[str, Tensor]]) -> dict[str, Tensor]:
         "t_sec": torch.cat([b["t_sec"] for b in batch], dim=0),
         "msg": torch.cat([b["msg"] for b in batch], dim=0),
     }
-
-
-def sample_negative_items(
-    positive_items: Tensor,
-    num_items: int,
-    num_negatives: int = 1,
-) -> Tensor:
-    """Uniform negative item indices in ``0 .. num_items - 1``."""
-    batch_size = positive_items.size(0)
-    neg = torch.randint(0, num_items, (batch_size, num_negatives), device=positive_items.device)
-    # Resample collisions with positive (rare at our catalog size).
-    for _ in range(3):
-        clash = neg.eq(positive_items.unsqueeze(1))
-        if not clash.any():
-            break
-        neg[clash] = torch.randint(0, num_items, (int(clash.sum().item()),), device=neg.device)
-    return neg.squeeze(1) if num_negatives == 1 else neg

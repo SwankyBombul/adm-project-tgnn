@@ -36,7 +36,6 @@ class TGNDataModule(pl.LightningDataModule):
         val_max_examples: int | None = 2000,
         num_workers: int = 0,
         pin_memory: bool | None = None,
-        loss_mode: str = "bce",
     ) -> None:
         super().__init__()
         self.save_hyperparameters(ignore=("pin_memory",))
@@ -46,7 +45,6 @@ class TGNDataModule(pl.LightningDataModule):
         self.processed_dir = path if path.is_absolute() else (root / path).resolve()
         meta = load_meta(self.processed_dir)
         self.num_items = tgn_num_items(meta)
-        self.loss_mode = loss_mode
         self.event_batch_size = event_batch_size
         self.example_batch_size = example_batch_size
         self.val_max_examples = val_max_examples
@@ -62,16 +60,10 @@ class TGNDataModule(pl.LightningDataModule):
 
     def setup(self, stage: str | None = None) -> None:
         if stage in ("fit", None):
-            if self.loss_mode == "bce":
-                self.train_event_dataset = TGNEventStreamDataset(
-                    split_events_path(self.processed_dir, "train"),
-                    self.event_batch_size,
-                )
-            else:
-                self.train_example_dataset = TGNExampleDataset(
-                    split_examples_path(self.processed_dir, "train", "tgn"),
-                    sort_by_target=True,
-                )
+            self.train_event_dataset = TGNEventStreamDataset(
+                split_events_path(self.processed_dir, "train"),
+                self.event_batch_size,
+            )
         if stage in ("fit", "validate", None):
             self.val_example_dataset = TGNExampleDataset(
                 split_examples_path(self.processed_dir, "val", "tgn"),
@@ -116,21 +108,12 @@ class TGNDataModule(pl.LightningDataModule):
         return batch
 
     def train_dataloader(self) -> DataLoader:
-        if self.loss_mode == "bce":
-            return DataLoader(
-                self.train_event_dataset,
-                batch_size=1,
-                shuffle=False,
-                num_workers=self.num_workers,
-                collate_fn=tgn_event_collate_fn,
-                pin_memory=self.pin_memory,
-            )
         return DataLoader(
-            self.train_example_dataset,
-            batch_size=self.example_batch_size,
+            self.train_event_dataset,
+            batch_size=1,
             shuffle=False,
             num_workers=self.num_workers,
-            collate_fn=tgn_example_collate_fn,
+            collate_fn=tgn_event_collate_fn,
             pin_memory=self.pin_memory,
         )
 

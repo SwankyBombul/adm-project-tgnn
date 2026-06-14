@@ -11,6 +11,7 @@ from torch.optim.lr_scheduler import StepLR
 
 from src.evaluation.baselines import popularity_top_k_gru_indices
 from src.evaluation.metrics import DEFAULT_KS
+from src.evaluation.sampled import build_candidate_sets
 from src.models.tagnn.model import TAGNN
 from src.training.base_module import NextItemLitModule
 
@@ -30,12 +31,16 @@ class TAGNNLitModule(NextItemLitModule):
         metric_ks: tuple[int, ...] = DEFAULT_KS,
         pop_baseline_metrics: dict[str, float] | None = None,
         compute_pop_baseline: bool = True,
+        eval_num_negatives: int = 99,
+        eval_seed: int | None = None,
     ) -> None:
         super().__init__(
             learning_rate=learning_rate,
             metric_ks=metric_ks,
             pop_baseline_metrics=pop_baseline_metrics,
             compute_pop_baseline=compute_pop_baseline,
+            eval_num_negatives=eval_num_negatives,
+            eval_seed=eval_seed,
         )
         self.save_hyperparameters(ignore=("pop_baseline_metrics",))
         self.weight_decay = weight_decay
@@ -58,6 +63,25 @@ class TAGNNLitModule(NextItemLitModule):
         seq_hidden = self.model.sequence_hidden(node_hidden, alias_inputs)
         logits = self.model.compute_logits(seq_hidden, mask)
         return logits, targets
+
+    def compute_sampled_scores_and_targets(
+        self,
+        batch: tuple[Tensor, Tensor, Tensor, Tensor, Tensor],
+    ) -> tuple[Tensor, Tensor, Tensor]:
+        alias_inputs, adjacency, items, mask, targets = batch
+        generator = self._eval_candidate_generator
+        if generator is None:
+            raise RuntimeError("test candidate generator not initialized")
+        candidates = build_candidate_sets(
+            targets,
+            self.model.num_embeddings,
+            self.eval_num_negatives,
+            generator=generator,
+        )
+        node_hidden = self.model(items, adjacency)
+        seq_hidden = self.model.sequence_hidden(node_hidden, alias_inputs)
+        scores = self.model.compute_logits_for_candidates(seq_hidden, mask, candidates.ids)
+        return scores, targets, candidates.ids
 
     def popularity_indices(self, processed_dir: Path) -> list[int]:
         return popularity_top_k_gru_indices(processed_dir, k=self.pop_baseline_k)

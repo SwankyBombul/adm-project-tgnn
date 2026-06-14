@@ -4,8 +4,8 @@ data:
   init_args:
     processed_dir: data/processed/subsample_1_32_clicks_only
     event_batch_size: 200
-    # Val uses sampled ranking (eval_num_negatives); test/evaluate still full catalog for now.
+    # Val and evaluate use sampled ranking (eval_num_negatives); fit val subsampled below.
     example_batch_size: 32
     # Subsample val during fit (~2k examples); set null for full val in test/evaluate.
-    val_max_examples: 2000
+    val_max_examples: null
     num_workers: 0

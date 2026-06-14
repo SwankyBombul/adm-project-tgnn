@@ -1,4 +1,4 @@
-"""TGN LightningModule: BCE training, sampled validation, full-catalog test."""
+"""TGN LightningModule: BCE training, sampled validation and test."""
 
 from __future__ import annotations
 
@@ -10,12 +10,12 @@ from torch import Tensor
 
 from src.evaluation.baselines import popularity_top_k_tgn_indices
 from src.evaluation.metrics import DEFAULT_KS
-from src.evaluation.sampled import batch_sampled_ranking_metrics, build_candidate_sets
+from src.evaluation.sampled import build_candidate_sets
 from src.models.tgn.dataset import TGNEventTensors, TGNExampleBatch, load_events_tensors
 from lightning.pytorch.utilities import rank_zero_info
 
 from src.models.tgn.model import TGNModel
-from src.training.base_module import NextItemLitModule
+from src.training.base_module import EVAL_DATALOADER_NAMES, NextItemLitModule
 
 # Replay train events in chunks during eval warmup (avoids huge tensors + shows progress).
 _WARMUP_CHUNK_EVENTS = 50_000
@@ -48,14 +48,12 @@ class TGNLitModule(NextItemLitModule):
             metric_ks=metric_ks,
             pop_baseline_metrics=pop_baseline_metrics,
             compute_pop_baseline=compute_pop_baseline,
+            eval_num_negatives=eval_num_negatives,
+            eval_seed=eval_seed,
         )
         self.save_hyperparameters(ignore=("pop_baseline_metrics",))
         self.num_negatives = num_negatives
-        self.eval_num_negatives = eval_num_negatives
-        self.eval_seed = eval_seed
         self.fast_eval = fast_eval
-        self._reuse_train_memory = False
-        self._eval_candidate_generator: torch.Generator | None = None
         self.model = TGNModel(
             num_items=num_items,
             num_sessions=num_sessions_train,
@@ -82,14 +80,12 @@ class TGNLitModule(NextItemLitModule):
 
     def on_train_epoch_start(self) -> None:
         self.model.reset_state()
-        self._reuse_train_memory = False
+        self.model.set_session_offset(0)
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    def on_train_epoch_end(self) -> None:
-        self._reuse_train_memory = True
-
     def on_validation_epoch_end(self) -> None:
+        super().on_validation_epoch_end()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
@@ -99,15 +95,10 @@ class TGNLitModule(NextItemLitModule):
         if datamodule is not None and hasattr(datamodule, "attach_events_to_module"):
             datamodule.attach_events_to_module(self)
 
-    def _eval_base_seed(self) -> int:
-        if self.eval_seed is not None:
-            return int(self.eval_seed)
-        return int(torch.initial_seed())
-
     def _init_validation_candidate_generator(self) -> None:
         base_seed = self._eval_base_seed()
         generator = torch.Generator(device=self.device)
-        generator.manual_seed(base_seed + int(self.current_epoch))
+        generator.manual_seed(base_seed)
         self._eval_candidate_generator = generator
 
     def on_validation_epoch_start(self) -> None:
@@ -115,30 +106,31 @@ class TGNLitModule(NextItemLitModule):
         if datamodule is not None and hasattr(datamodule, "set_eval_split"):
             datamodule.set_eval_split(self, "val")
         self._init_validation_candidate_generator()
-        if self._reuse_train_memory:
-            rank_zero_info(
-                "TGN eval: reusing train memory (skipping train warmup replay)"
-            )
-            self._reuse_train_memory = False
-            self.model.reset_replay_cursor()
-            return
         self._warmup_for_eval()
         self.model.reset_replay_cursor()
+        if datamodule is not None and hasattr(datamodule, "session_offset"):
+            self.model.set_session_offset(datamodule.session_offset("val"))
 
-    def on_test_batch_start(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> None:
-        if batch_idx != 0:
-            return
-        datamodule = self.trainer.datamodule
-        if datamodule is None or not hasattr(datamodule, "set_eval_split"):
-            return
-        from src.training.base_module import EVAL_DATALOADER_NAMES
-
-        split = EVAL_DATALOADER_NAMES[dataloader_idx]
-        datamodule.set_eval_split(self, split)
-        self._warmup_for_eval()
+    def on_test_batch_start(
+        self,
+        batch: Any,
+        batch_idx: int,
+        dataloader_idx: int = 0,
+    ) -> None:
+        if batch_idx == 0:
+            datamodule = self.trainer.datamodule
+            split = EVAL_DATALOADER_NAMES[dataloader_idx]
+            if datamodule is not None and hasattr(datamodule, "set_eval_split"):
+                datamodule.set_eval_split(self, split)
+            self._warmup_for_eval()
+            self.model.reset_replay_cursor()
+            if datamodule is not None and hasattr(datamodule, "session_offset"):
+                self.model.set_session_offset(datamodule.session_offset(split))
+        super().on_test_batch_start(batch, batch_idx, dataloader_idx)
 
     def _warmup_for_eval(self) -> None:
         self.model.reset_state()
+        self.model.set_session_offset(0)
         if self._train_events is None:
             return
         max_eid = int(self._train_events.event_id.max().item())
@@ -174,13 +166,13 @@ class TGNLitModule(NextItemLitModule):
         self,
         batch: TGNExampleBatch,
     ) -> tuple[Tensor, Tensor, Tensor]:
+        if not isinstance(batch, TGNExampleBatch):
+            raise TypeError(f"Expected TGNExampleBatch, got {type(batch)}")
         if self._eval_events is None:
             raise RuntimeError("eval event tensors not set on TGNLitModule")
         generator = self._eval_candidate_generator
         if generator is None:
-            self._init_validation_candidate_generator()
-            generator = self._eval_candidate_generator
-        assert generator is not None
+            raise RuntimeError("test candidate generator not initialized")
 
         candidates = build_candidate_sets(
             batch.target_item_idx_tgn,
@@ -195,31 +187,6 @@ class TGNLitModule(NextItemLitModule):
             fast_eval=self.fast_eval,
         )
         return scores, targets, candidates.ids
-
-    def _log_sampled_split_metrics(
-        self,
-        prefix: str,
-        scores: Tensor,
-        candidate_ids: Tensor,
-        targets: Tensor,
-        batch_size: int,
-        *,
-        prog_bar_recall20: bool = False,
-    ) -> None:
-        for name, value in batch_sampled_ranking_metrics(
-            scores,
-            candidate_ids,
-            targets,
-            self.metric_ks,
-        ).items():
-            self.log(
-                f"{prefix}/sampled_{name}",
-                value,
-                on_step=False,
-                on_epoch=True,
-                prog_bar=prog_bar_recall20 and name == "recall@20",
-                batch_size=batch_size,
-            )
 
     def popularity_indices(self, processed_dir: Path) -> list[int]:
         return popularity_top_k_tgn_indices(processed_dir, k=self.pop_baseline_k)

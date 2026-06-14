@@ -1,6 +1,6 @@
 # TGN BCE baseline (W&B, 10 epochs)
 trainer:
-  max_epochs: 10
+  max_epochs: 5
   num_sanity_val_steps: 0
   # ~63 val batches @ 2k examples (see data.val_max_examples); remove for full val.
   limit_val_batches: null

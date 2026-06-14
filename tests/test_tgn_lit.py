@@ -139,3 +139,31 @@ def test_tgn_lit_validation_step_logs_sampled_metrics(tmp_path: Path) -> None:
     module.validation_step(_example_batch(), batch_idx=0)
     assert "val/sampled_recall@20" in logged
     assert "val/loss" not in logged
+
+
+def test_tgn_lit_test_step_logs_sampled_metrics(tmp_path: Path) -> None:
+    processed = write_tgn_processed_dir(tmp_path)
+    events = load_events_tensors(processed / "train" / "tgn" / "events.parquet")
+    module = TGNLitModule(
+        num_items=5,
+        num_sessions_train=2,
+        eval_num_negatives=2,
+        eval_seed=0,
+        embedding_dim=16,
+        memory_dim=32,
+        time_dim=16,
+        n_neighbors=2,
+        fast_eval=True,
+    )
+    module.set_event_tensors(train_events=events, eval_events=events)
+    module.trainer = MagicMock()
+    module.trainer.datamodule = None
+    module._eval_candidate_generator = torch.Generator().manual_seed(0)
+    module.model.reset_state()
+
+    logged: dict[str, torch.Tensor] = {}
+    module.log = lambda name, value, **kwargs: logged.update({name: value})  # noqa: ARG005
+
+    batch = _example_batch()
+    module.test_step(batch, batch_idx=0, dataloader_idx=0)
+    assert "test_internal/sampled_recall@20" in logged

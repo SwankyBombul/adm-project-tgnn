@@ -11,3 +11,5 @@ model:
     lr_decay_step: 3
     lr_decay_gamma: 0.1
     compute_pop_baseline: true
+    eval_num_negatives: 99
+    eval_seed: null

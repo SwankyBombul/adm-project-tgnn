@@ -57,6 +57,7 @@ class TGNDataModule(pl.LightningDataModule):
             split_events_path(self.processed_dir, "train")
         )
         self.num_sessions_train = self.train_events.num_sessions
+        self._session_offsets: dict[str, int] | None = None
 
     def setup(self, stage: str | None = None) -> None:
         if stage in ("fit", None):
@@ -147,6 +148,19 @@ class TGNDataModule(pl.LightningDataModule):
             train_events=self.train_events.to(device),
             eval_events=self.train_events.to(device),
         )
+        module.model.set_session_offset(0)
+
+    def session_offset(self, split: str) -> int:
+        if self._session_offsets is None:
+            offsets: dict[str, int] = {}
+            cumulative = 0
+            for split_name in ("train", "val", "test_internal", "challenge_test"):
+                offsets[split_name] = cumulative
+                path = split_events_path(self.processed_dir, split_name)
+                if path.is_file():
+                    cumulative += load_events_tensors(path).num_sessions
+            self._session_offsets = offsets
+        return self._session_offsets[split]
 
     def set_eval_split(self, module, split: str) -> None:  # noqa: ANN001
         device = module.device
@@ -161,3 +175,4 @@ class TGNDataModule(pl.LightningDataModule):
         else:
             raise ValueError(split)
         module.set_event_tensors(eval_events=events)
+        module.model.set_session_offset(self.session_offset(split))

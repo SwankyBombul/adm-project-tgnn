@@ -135,3 +135,37 @@ class TAGNN(Module):
             logits[:, start:end] = torch.sum(combined * chunk_emb.unsqueeze(0), dim=-1)
 
         return logits
+
+    def compute_logits_for_candidates(
+        self,
+        hidden: Tensor,
+        mask: Tensor,
+        candidate_ids: Tensor,
+    ) -> Tensor:
+        """Sampled-catalog logits: shape (batch, num_candidates)."""
+        lengths = mask.long().sum(dim=1).clamp(min=1)
+        last_idx = lengths - 1
+        batch_idx = torch.arange(hidden.size(0), device=hidden.device)
+        ht = hidden[batch_idx, last_idx]
+
+        q1 = self.linear_one(ht).unsqueeze(1)
+        q2 = self.linear_two(hidden)
+        alpha = self.linear_three(torch.sigmoid(q1 + q2))
+        alpha = F.softmax(alpha, dim=1)
+        mask_f = mask.unsqueeze(-1).float()
+        session_repr = torch.sum(alpha * hidden * mask_f, dim=1)
+
+        if not self.nonhybrid:
+            session_repr = self.linear_transform(torch.cat([session_repr, ht], dim=1))
+
+        masked_hidden = hidden * mask_f
+        qt = self.linear_t(masked_hidden)
+        qt_t = qt.transpose(1, 2)
+
+        candidate_emb = self.embedding.weight[candidate_ids]
+        session_broadcast = session_repr.unsqueeze(1)
+        attn_scores = torch.einsum("bch,bhs->bcs", candidate_emb, qt_t)
+        beta = F.softmax(attn_scores, dim=-1)
+        target_repr = beta @ masked_hidden
+        combined = session_broadcast + target_repr
+        return torch.sum(combined * candidate_emb, dim=-1)

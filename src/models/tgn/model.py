@@ -65,6 +65,7 @@ class TGNModel(nn.Module):
         self.decoder = LinkDecoder(embedding_dim)
         self._neighbor_loader: LastNeighborLoader | None = None
         self._replay = TGNReplayState()
+        self._session_offset: int = 0
         self._edge_t = torch.zeros(0, dtype=torch.long)
         self._edge_msg = torch.zeros(0, msg_dim)
 
@@ -99,6 +100,10 @@ class TGNModel(nn.Module):
         self._num_nodes = num_nodes(self.num_items, num_sessions)
         self._neighbor_loader = None
 
+    def set_session_offset(self, offset: int) -> None:
+        """Map per-split local ``session_idx`` to disjoint global session nodes."""
+        self._session_offset = int(offset)
+
     def reset_state(self) -> None:
         self.memory.reset_state()
         self._neighbor_loader_for_device().reset_state()
@@ -118,11 +123,12 @@ class TGNModel(nn.Module):
         session_idx: Tensor,
         item_idx_tgn: Tensor,
     ) -> None:
-        if session_idx.numel() and int(session_idx.max().item()) >= self.num_sessions:
-            raise ValueError(
-                f"session_idx max {int(session_idx.max().item())} >= num_sessions "
-                f"{self.num_sessions}"
-            )
+        if session_idx.numel():
+            max_global = int(session_idx.max().item()) + self._session_offset
+            if max_global >= self.num_sessions:
+                raise ValueError(
+                    f"global session id {max_global} >= num_sessions {self.num_sessions}"
+                )
         if item_idx_tgn.numel() and int(item_idx_tgn.max().item()) >= self.num_items:
             raise ValueError(
                 f"item_idx_tgn max {int(item_idx_tgn.max().item())} >= num_items "
@@ -137,7 +143,11 @@ class TGNModel(nn.Module):
         session_idx: Tensor,
         item_idx_tgn: Tensor,
     ) -> tuple[Tensor, Tensor]:
-        return edge_endpoints(session_idx, item_idx_tgn, self.num_items)
+        return edge_endpoints(
+            session_idx + self._session_offset,
+            item_idx_tgn,
+            self.num_items,
+        )
 
     def _compute_embeddings(self, n_id: Tensor, *, memory_only: bool = False) -> Tensor:
         if memory_only:
@@ -257,7 +267,7 @@ class TGNModel(nn.Module):
         self._replay.last_event_id = end_event_id
 
     def _session_global(self, session_idx: Tensor) -> Tensor:
-        return session_global_id(session_idx, self.num_items)
+        return session_global_id(session_idx + self._session_offset, self.num_items)
 
     def score_pos_neg(
         self,

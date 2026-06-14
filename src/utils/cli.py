@@ -79,13 +79,12 @@ def link_tgn_num_items(data_cfg: Any, model_cfg: Any) -> None:
 
     meta = load_meta(processed_dir)
     _set_init_arg(model_cfg, "num_items", tgn_num_items(meta))
-    train_events = load_events_tensors(split_events_path(processed_dir, "train"))
-    max_sessions = train_events.num_sessions
-    for split in ("val", "test_internal"):
+    total_sessions = 0
+    for split in ("train", "val", "test_internal", "challenge_test"):
         path = split_events_path(processed_dir, split)
         if path.is_file():
-            max_sessions = max(max_sessions, load_events_tensors(path).num_sessions)
-    _set_init_arg(model_cfg, "num_sessions_train", max_sessions)
+            total_sessions += load_events_tensors(path).num_sessions
+    _set_init_arg(model_cfg, "num_sessions_train", total_sessions)
 
 
 def link_model_config_from_meta(data_cfg: Any, model_cfg: Any) -> None:

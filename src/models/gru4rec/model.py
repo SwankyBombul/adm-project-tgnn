@@ -32,8 +32,8 @@ class GRU4Rec(nn.Module):
         )
         self.output = nn.Linear(hidden_dim, num_embeddings)
 
-    def forward(self, item_ids: Tensor, lengths: Tensor) -> Tensor:
-        """Return logits for the next item: shape (batch, num_embeddings)."""
+    def encode(self, item_ids: Tensor, lengths: Tensor) -> Tensor:
+        """Return the final GRU hidden state: shape (batch, hidden_dim)."""
         embedded = self.embedding(item_ids)
         packed = nn.utils.rnn.pack_padded_sequence(
             embedded,
@@ -42,5 +42,20 @@ class GRU4Rec(nn.Module):
             enforce_sorted=False,
         )
         _, hidden = self.gru(packed)
-        last_hidden = hidden[-1]
-        return self.output(last_hidden)
+        return hidden[-1]
+
+    def forward(self, item_ids: Tensor, lengths: Tensor) -> Tensor:
+        """Return logits for the next item: shape (batch, num_embeddings)."""
+        return self.output(self.encode(item_ids, lengths))
+
+    def score_candidates(
+        self,
+        item_ids: Tensor,
+        lengths: Tensor,
+        candidate_ids: Tensor,
+    ) -> Tensor:
+        """Score a candidate subset per row: shape (batch, num_candidates)."""
+        hidden = self.encode(item_ids, lengths)
+        weight = self.output.weight[candidate_ids]
+        bias = self.output.bias[candidate_ids]
+        return (hidden.unsqueeze(1) * weight).sum(dim=-1) + bias

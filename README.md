@@ -217,7 +217,7 @@ uv run python -m src.main evaluate `
   --ckpt_path best
 ```
 
-**TGN** (PyG; trening BCE na strumieniu zdarzeń; **walidacja w fit** — sampled Recall@K z `eval_num_negatives` negatywów; `evaluate` na razie pełny katalog):
+**TGN** (PyG; trening BCE na strumieniu zdarzeń; **walidacja i evaluate** — sampled Recall@K z `eval_num_negatives` negatywów):
 
 ```powershell
 uv run python -m src.main fit `
@@ -268,7 +268,7 @@ saved_models/
 
 `--ckpt_path best` wskazuje na `saved_models/gru4rec/<run_name>/best.ckpt` (ten sam experiment YAML co przy `fit`). Możesz też podać pełną ścieżkę do `.ckpt`.
 
-Podczas `fit` checkpoint wybierany jest po `val/recall@20` (early stopping). Metryki z `evaluate` trafiają do W&B jako `test_internal/*` i `challenge_test/*`. Metryki rankingowe i baseline POP są w `src/evaluation/`.
+Podczas `fit` checkpoint wybierany jest po `val/recall@20` (GRU4Rec/TAGNN) lub `val/sampled_recall@20` (TGN). Metryki z `evaluate` trafiają do W&B jako `test_internal/sampled_*` i `challenge_test/sampled_*` (sampled Recall@K: target + `eval_num_negatives` losowych negatywów z katalogu). Baseline POP (`recall@20_pop`) bez zmian. Implementacja w `src/evaluation/sampled.py`.
 
 Ustawienia W&B (`entity`, `project`, `login_wandb()`, `verify_wandb_access()`) są w `src/config/wandb_settings.py`.
 
@@ -295,7 +295,7 @@ adm-project-tgnn/
 │   ├── models/
 │   │   ├── gru4rec/              # model + dataset + LightningModule
 │   │   ├── tagnn/                # TAGNN (port CRIPAC-DIG/TAGNN)
-│   │   └── tgn/                  # TGN (BCE train, sampled val, full-catalog test)
+│   │   └── tgn/                  # TGN (BCE train, sampled val + test)
 │   ├── data_modules/             # LightningDataModule (GRU4Rec, TAGNN, TGN)
 │   ├── training/                 # NextItemLitModule, saved_models paths
 │   ├── main.py                   # LightningCLI: fit / evaluate
@@ -385,7 +385,7 @@ Eksperymenty i domyślne parametry trzymamy w plikach YAML w katalogu `config/`:
 | Preprocessing (subsample, split, vocab, eksport GRU/TAGNN/TGN) | `src/preprocessing/` |
 | Baseline GRU4Rec (fit + evaluate, W&B, `saved_models/`) | `src/main.py`, `src/training/`, `config/` |
 | Baseline TAGNN (fit + evaluate, port SIGIR 2020) | `src/models/tagnn/`, `config/data/tagnn_yoochoose.yaml` |
-| TGN (PyG, BCE fit + full-catalog evaluate) | `src/models/tgn/`, `config/data/tgn_yoochoose.yaml` |
+| TGN (PyG, BCE fit + sampled evaluate) | `src/models/tgn/`, `config/data/tgn_yoochoose.yaml` |
 | Metryki rankingowe + POP@20 baseline | `src/evaluation/` |
 | Ustawienia W&B | `src/config/wandb_settings.py` |
 

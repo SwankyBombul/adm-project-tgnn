@@ -9,6 +9,7 @@ from torch import Tensor
 
 from src.evaluation.baselines import popularity_top_k_gru_indices
 from src.evaluation.metrics import DEFAULT_KS
+from src.evaluation.sampled import build_candidate_sets
 from src.models.gru4rec.model import GRU4Rec
 from src.training.base_module import NextItemLitModule
 
@@ -26,12 +27,16 @@ class GRU4RecLitModule(NextItemLitModule):
         metric_ks: tuple[int, ...] = DEFAULT_KS,
         pop_baseline_metrics: dict[str, float] | None = None,
         compute_pop_baseline: bool = True,
+        eval_num_negatives: int = 99,
+        eval_seed: int | None = None,
     ) -> None:
         super().__init__(
             learning_rate=learning_rate,
             metric_ks=metric_ks,
             pop_baseline_metrics=pop_baseline_metrics,
             compute_pop_baseline=compute_pop_baseline,
+            eval_num_negatives=eval_num_negatives,
+            eval_seed=eval_seed,
         )
         self.save_hyperparameters(ignore=("pop_baseline_metrics",))
         self.model = GRU4Rec(
@@ -52,6 +57,23 @@ class GRU4RecLitModule(NextItemLitModule):
     ) -> tuple[Tensor, Tensor]:
         item_ids, lengths, targets = batch
         return self(item_ids, lengths), targets
+
+    def compute_sampled_scores_and_targets(
+        self,
+        batch: tuple[Tensor, Tensor, Tensor],
+    ) -> tuple[Tensor, Tensor, Tensor]:
+        item_ids, lengths, targets = batch
+        generator = self._eval_candidate_generator
+        if generator is None:
+            raise RuntimeError("test candidate generator not initialized")
+        candidates = build_candidate_sets(
+            targets,
+            self.model.embedding.num_embeddings,
+            self.eval_num_negatives,
+            generator=generator,
+        )
+        scores = self.model.score_candidates(item_ids, lengths, candidates.ids)
+        return scores, targets, candidates.ids
 
     def popularity_indices(self, processed_dir: Path) -> list[int]:
         return popularity_top_k_gru_indices(processed_dir, k=self.pop_baseline_k)

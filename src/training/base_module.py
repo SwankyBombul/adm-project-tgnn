@@ -133,6 +133,7 @@ class NextItemLitModule(pl.LightningModule):
         batch_size: int,
         *,
         prog_bar_loss: bool = False,
+        prog_bar_ranking: bool = False,
     ) -> None:
         self.log(
             f"{prefix}/loss",
@@ -149,6 +150,7 @@ class NextItemLitModule(pl.LightningModule):
                 value,
                 on_step=False,
                 on_epoch=True,
+                prog_bar=prog_bar_ranking,
                 batch_size=batch_size,
             )
 
@@ -160,7 +162,7 @@ class NextItemLitModule(pl.LightningModule):
         targets: Tensor,
         batch_size: int,
         *,
-        prog_bar_recall20: bool = False,
+        prog_bar: bool = False,
     ) -> None:
         for name, value in batch_sampled_ranking_metrics(
             scores,
@@ -173,7 +175,7 @@ class NextItemLitModule(pl.LightningModule):
                 value,
                 on_step=False,
                 on_epoch=True,
-                prog_bar=prog_bar_recall20 and name == "recall@20",
+                prog_bar=prog_bar,
                 batch_size=batch_size,
             )
 
@@ -194,11 +196,12 @@ class NextItemLitModule(pl.LightningModule):
             targets,
             targets.size(0),
             prog_bar_loss=True,
+            prog_bar_ranking=True,
         )
 
     def on_validation_epoch_end(self) -> None:
         for name, value in self.pop_baseline_metrics.items():
-            self.log(f"val/{name}", value, prog_bar=name == "recall@20_pop")
+            self.log(f"val/{name}", value, prog_bar=True)
 
     def test_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> None:
         prefix = EVAL_DATALOADER_NAMES[dataloader_idx]
@@ -209,7 +212,7 @@ class NextItemLitModule(pl.LightningModule):
             candidate_ids,
             targets,
             targets.size(0),
-            prog_bar_recall20=prefix == "challenge_test",
+            prog_bar=prefix == "challenge_test",
         )
 
     def on_test_epoch_end(self) -> None:

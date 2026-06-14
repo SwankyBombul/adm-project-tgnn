@@ -221,7 +221,7 @@ class TGNLitModule(NextItemLitModule):
             candidate_ids,
             targets,
             targets.size(0),
-            prog_bar_recall20=True,
+            prog_bar=True,
         )
 
     def configure_optimizers(self) -> Any:

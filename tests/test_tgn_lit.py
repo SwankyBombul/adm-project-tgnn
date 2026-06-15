@@ -187,3 +187,30 @@ def test_tgn_lit_test_step_logs_sampled_metrics(tmp_path: Path) -> None:
     batch = _example_batch()
     module.test_step(batch, batch_idx=0, dataloader_idx=0)
     assert "test_internal/sampled_recall@20" in logged
+
+
+def test_tgn_lit_load_expanded_memory_checkpoint() -> None:
+    small = TGNLitModule(
+        num_items=5,
+        num_sessions_train=2,
+        embedding_dim=16,
+        memory_dim=32,
+        time_dim=16,
+        n_neighbors=2,
+    )
+    large = TGNLitModule(
+        num_items=5,
+        num_sessions_train=6,
+        embedding_dim=16,
+        memory_dim=32,
+        time_dim=16,
+        n_neighbors=2,
+    )
+    checkpoint = small.state_dict()
+    large.load_state_dict(checkpoint, strict=False)
+    prefix = checkpoint["model.memory.memory"].shape[0]
+    assert torch.allclose(
+        large.model.memory.memory[:prefix],
+        small.model.memory.memory,
+    )
+    assert large.model.memory.memory.shape[0] == 5 + 6

@@ -20,6 +20,7 @@ from src.training.base_module import EVAL_DATALOADER_NAMES, NextItemLitModule
 # Replay train events in chunks during eval warmup (avoids huge tensors + shows progress).
 _WARMUP_CHUNK_EVENTS = 50_000
 _WARMUP_LOG_EVERY_EVENTS = 100_000
+_MEMORY_STATE_PREFIX = "model.memory."
 
 
 class TGNLitModule(NextItemLitModule):
@@ -263,6 +264,55 @@ class TGNLitModule(NextItemLitModule):
 
     def configure_optimizers(self) -> Any:
         return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+
+    def load_state_dict(self, state_dict: dict[str, Any], strict: bool = True) -> Any:
+        """Allow eval graphs larger than train (e.g. ``challenge_test`` session slots)."""
+        adapted = dict(state_dict)
+        for key in list(adapted):
+            if not key.startswith(_MEMORY_STATE_PREFIX):
+                continue
+            target = self._state_dict_tensor(key)
+            if target is None:
+                continue
+            ckpt_tensor = adapted[key]
+            if not isinstance(ckpt_tensor, Tensor):
+                continue
+            if ckpt_tensor.shape == target.shape:
+                continue
+            if not self._can_expand_memory_tensor(key, ckpt_tensor, target):
+                raise RuntimeError(
+                    f"Cannot load checkpoint tensor {key} with shape {tuple(ckpt_tensor.shape)} "
+                    f"into model buffer of shape {tuple(target.shape)}"
+                )
+            with torch.no_grad():
+                target[: ckpt_tensor.shape[0]].copy_(ckpt_tensor)
+            del adapted[key]
+            rank_zero_info(
+                f"TGN checkpoint: copied {key} "
+                f"{tuple(ckpt_tensor.shape)} -> {tuple(target.shape)} (expanded eval graph)"
+            )
+        return super().load_state_dict(adapted, strict=False)
+
+    def _state_dict_tensor(self, key: str) -> Tensor | None:
+        module: Any = self
+        parts = key.split(".")
+        for part in parts[:-1]:
+            if not hasattr(module, part):
+                return None
+            module = getattr(module, part)
+        attr = parts[-1]
+        if not hasattr(module, attr):
+            return None
+        value = getattr(module, attr)
+        return value if isinstance(value, Tensor) else None
+
+    @staticmethod
+    def _can_expand_memory_tensor(key: str, ckpt_tensor: Tensor, target: Tensor) -> bool:
+        if ckpt_tensor.ndim != target.ndim or ckpt_tensor.ndim < 1:
+            return False
+        if ckpt_tensor.shape[0] >= target.shape[0]:
+            return False
+        return ckpt_tensor.shape[1:] == target.shape[1:]
 
 
 def load_split_events(path: Path, device: torch.device) -> TGNEventTensors:

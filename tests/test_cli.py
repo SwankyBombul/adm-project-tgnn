@@ -9,7 +9,6 @@ from jsonargparse import Namespace
 
 from src.training.paths import resolve_saved_checkpoint, saved_model_dir
 from src.utils.cli import (
-    apply_tgn_checkpoint_hparams,
     configure_fit_saved_model_dirs,
     infer_model_name,
     infer_run_name,
@@ -105,30 +104,6 @@ def test_link_tgn_num_items_can_include_challenge(tmp_path: Path) -> None:
 
     assert model_cfg["init_args"]["num_items"] == 6
     assert model_cfg["init_args"]["num_sessions_train"] == 8
-
-
-def test_apply_tgn_checkpoint_hparams_overrides_linked_sizes(tmp_path: Path) -> None:
-    import torch
-
-    ckpt = tmp_path / "tgn.ckpt"
-    torch.save(
-        {
-            "hyper_parameters": {
-                "num_sessions_train": 289052,
-                "num_items": 19374,
-            },
-        },
-        ckpt,
-    )
-    model_cfg = {
-        "class_path": "src.models.tgn.module.TGNLitModule",
-        "init_args": {"num_items": 0, "num_sessions_train": 2620858},
-    }
-
-    apply_tgn_checkpoint_hparams(model_cfg, ckpt)
-
-    assert model_cfg["init_args"]["num_items"] == 19374
-    assert model_cfg["init_args"]["num_sessions_train"] == 289052
 
 
 def test_infer_model_name_and_run_name() -> None:

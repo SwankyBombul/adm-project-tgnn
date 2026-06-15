@@ -127,6 +127,12 @@ Logika targetów train vs val/test w [`examples.py`](../src/preprocessing/exampl
 
 Uwaga z prezentacji ([`first_presentation.md`](first_presentation.md)): kaskadowość w trainie może zawyżać częstość lokalnych przejść (np. `c1→c2` vs globalnie częstszy `c7`).
 
+**Jak to zaprezentować (3 kroki):**
+
+1. **Yoochoose (prawdziwe dane)** — [`notebooks/cascade_sliding_window_demo.ipynb`](../notebooks/cascade_sliding_window_demo.ipynb): subsample 1/32 jak w dev; przykład `c1→c2` vs `c1→global_top`, wykres Lorenza, tabela `lift`, wyszukiwanie itemów z sekcji 5.
+2. **Pełna EDA** — sekcja „Przejścia sesyjne i kaskadowość” w [`eda_yoochose.ipynb`](../notebooks/eda_yoochose.ipynb): tabela `lift` na pełnym trainie.
+3. **Wniosek:** sliding window waży sesje proporcjonalnie do `(długość − 1)`; model uczy **lokalnych** przejść, nie globalnej popularności katalogu.
+
 ---
 
 ## 5. Category (cecha krawędzi TGN)

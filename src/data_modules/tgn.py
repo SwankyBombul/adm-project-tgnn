@@ -57,6 +57,10 @@ class TGNDataModule(pl.LightningDataModule):
             split_events_path(self.processed_dir, "train")
         )
         self.num_sessions_train = self.train_events.num_sessions
+        self._train_item_counts = torch.bincount(
+            self.train_events.item_idx_tgn,
+            minlength=self.num_items,
+        ).to(dtype=torch.float32)
         self._session_offsets: dict[str, int] | None = None
 
     def setup(self, stage: str | None = None) -> None:
@@ -176,3 +180,14 @@ class TGNDataModule(pl.LightningDataModule):
             raise ValueError(split)
         module.set_event_tensors(eval_events=events)
         module.model.set_session_offset(self.session_offset(split))
+
+    def train_item_sampling_weights(self, *, alpha: float = 1.0) -> torch.Tensor:
+        if alpha <= 0.0:
+            raise ValueError("alpha must be > 0")
+        counts = self._train_item_counts
+        # Additive smoothing keeps zero-count items sampleable when needed.
+        weights = (counts + 1.0).pow(alpha)
+        total = weights.sum()
+        if float(total.item()) <= 0.0:
+            return torch.full_like(weights, 1.0 / float(weights.numel()))
+        return weights / total

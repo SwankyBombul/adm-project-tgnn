@@ -46,6 +46,22 @@ def test_sample_negative_items_single_and_multi() -> None:
     assert multi.shape == (2, 3)
 
 
+def test_sample_negative_items_popularity_weighted() -> None:
+    targets = torch.tensor([0, 1, 2, 3])
+    weights = torch.tensor([0.01, 0.01, 0.97, 0.01], dtype=torch.float32)
+    gen = torch.Generator().manual_seed(123)
+    negatives = sample_negative_items(
+        targets,
+        num_items=4,
+        num_negatives=2,
+        sampling="popularity",
+        popularity_weights=weights,
+        generator=gen,
+    )
+    assert negatives.shape == (4, 2)
+    assert int((negatives == 2).sum().item()) >= 4
+
+
 def test_batch_sampled_ranking_metrics_perfect_and_miss() -> None:
     candidate_ids = torch.tensor(
         [

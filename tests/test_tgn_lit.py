@@ -42,6 +42,26 @@ def test_tgn_lit_bce_training_step() -> None:
     assert loss.ndim == 0
 
 
+def test_tgn_lit_bce_training_step_multi_negative() -> None:
+    module = TGNLitModule(
+        num_items=5,
+        num_sessions_train=2,
+        num_negatives=4,
+        embedding_dim=16,
+        memory_dim=32,
+        time_dim=16,
+        n_neighbors=2,
+    )
+    batch = {
+        "session_idx": torch.tensor([0, 1]),
+        "item_idx_tgn": torch.tensor([1, 2]),
+        "t_sec": torch.tensor([1.0, 4.0]),
+        "msg": torch.zeros(2, 4),
+    }
+    loss = module.training_step(batch, 0)
+    assert loss.ndim == 0
+
+
 def test_tgn_lit_sampled_validation_scores_shape(tmp_path: Path) -> None:
     processed = write_tgn_processed_dir(tmp_path)
     events = load_events_tensors(processed / "train" / "tgn" / "events.parquet")
@@ -54,7 +74,7 @@ def test_tgn_lit_sampled_validation_scores_shape(tmp_path: Path) -> None:
         memory_dim=32,
         time_dim=16,
         n_neighbors=2,
-        fast_eval=True,
+        fast_eval=False,
     )
     module.set_event_tensors(eval_events=events)
     module._eval_candidate_generator = torch.Generator().manual_seed(0)
@@ -85,7 +105,7 @@ def test_tgn_lit_full_catalog_eval_still_available(tmp_path: Path) -> None:
         memory_dim=32,
         time_dim=16,
         n_neighbors=2,
-        fast_eval=True,
+        fast_eval=False,
     )
     module.set_event_tensors(eval_events=events)
     logits, targets = module.compute_logits_and_targets(_example_batch())
@@ -126,7 +146,7 @@ def test_tgn_lit_validation_step_logs_sampled_metrics(tmp_path: Path) -> None:
         memory_dim=32,
         time_dim=16,
         n_neighbors=2,
-        fast_eval=True,
+        fast_eval=False,
     )
     module.set_event_tensors(train_events=events, eval_events=events)
     module.trainer = MagicMock()
@@ -153,7 +173,7 @@ def test_tgn_lit_test_step_logs_sampled_metrics(tmp_path: Path) -> None:
         memory_dim=32,
         time_dim=16,
         n_neighbors=2,
-        fast_eval=True,
+        fast_eval=False,
     )
     module.set_event_tensors(train_events=events, eval_events=events)
     module.trainer = MagicMock()

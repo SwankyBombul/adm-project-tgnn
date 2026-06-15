@@ -29,4 +29,6 @@ data:
 
 model:
   init_args:
-    num_negatives: 1
+    num_negatives: 10
+    negative_sampling: popularity
+    negative_popularity_alpha: 1.0

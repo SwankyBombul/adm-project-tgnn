@@ -67,8 +67,13 @@ def link_gru4rec_num_embeddings(data_cfg: Any, model_cfg: Any) -> None:
     _set_init_arg(model_cfg, "num_embeddings", gru4rec_vocab_size(load_meta(processed_dir)))
 
 
-def link_tgn_num_items(data_cfg: Any, model_cfg: Any) -> None:
-    """Set TGN ``num_items`` and train session count from artifacts."""
+def link_tgn_num_items(
+    data_cfg: Any,
+    model_cfg: Any,
+    *,
+    include_challenge_test: bool = True,
+) -> None:
+    """Set TGN ``num_items`` and session count from split event artifacts."""
     processed_dir = _resolve_processed_dir(data_cfg)
     if processed_dir is None:
         return
@@ -80,20 +85,32 @@ def link_tgn_num_items(data_cfg: Any, model_cfg: Any) -> None:
     meta = load_meta(processed_dir)
     _set_init_arg(model_cfg, "num_items", tgn_num_items(meta))
     total_sessions = 0
-    for split in ("train", "val", "test_internal", "challenge_test"):
+    splits = ["train", "val", "test_internal"]
+    if include_challenge_test:
+        splits.append("challenge_test")
+    for split in splits:
         path = split_events_path(processed_dir, split)
         if path.is_file():
             total_sessions += load_events_tensors(path).num_sessions
     _set_init_arg(model_cfg, "num_sessions_train", total_sessions)
 
 
-def link_model_config_from_meta(data_cfg: Any, model_cfg: Any) -> None:
+def link_model_config_from_meta(
+    data_cfg: Any,
+    model_cfg: Any,
+    *,
+    include_tgn_challenge_sessions: bool = True,
+) -> None:
     """Link model hyperparameters from artifacts based on the configured model class."""
     model_class = str(_nested_get(model_cfg, "class_path") or "").lower()
     if "gru4rec" in model_class or "tagnn" in model_class:
         link_gru4rec_num_embeddings(data_cfg, model_cfg)
     if "tgn" in model_class:
-        link_tgn_num_items(data_cfg, model_cfg)
+        link_tgn_num_items(
+            data_cfg,
+            model_cfg,
+            include_challenge_test=include_tgn_challenge_sessions,
+        )
 
 
 def infer_model_name(data_cfg: Any) -> str:
@@ -185,7 +202,11 @@ class AdmLightningCLI(LightningCLI):
         data_cfg = sub_cfg.get("data")
         model_cfg = sub_cfg.get("model")
         if data_cfg and model_cfg:
-            link_model_config_from_meta(data_cfg, model_cfg)
+            link_model_config_from_meta(
+                data_cfg,
+                model_cfg,
+                include_tgn_challenge_sessions=self.subcommand == "test",
+            )
 
         model_name = infer_model_name(data_cfg) if data_cfg else DEFAULT_MODEL_NAME
         run_name = infer_run_name(sub_cfg)

@@ -277,19 +277,34 @@ class TGNModel(nn.Module):
         msg: Tensor,
         *,
         num_negatives: int = 1,
+        negative_sampling: str = "uniform",
+        popularity_weights: Tensor | None = None,
+        generator: torch.Generator | None = None,
     ) -> tuple[Tensor, Tensor]:
         """BCE training step on an event batch (memory updated after scoring)."""
         src, dst = self._global_endpoints(session_idx, item_idx_tgn)
-        neg_items = sample_negative_items(item_idx_tgn, self.num_items, num_negatives)
+        neg_items = sample_negative_items(
+            item_idx_tgn,
+            self.num_items,
+            num_negatives,
+            sampling=negative_sampling,
+            popularity_weights=popularity_weights,
+            generator=generator,
+        )
+        if num_negatives == 1:
+            neg_items = neg_items.unsqueeze(1)
         _, neg_dst = self._global_endpoints(session_idx, neg_items)
         z_src = self._embed_nodes(src)
         z_dst = self._embed_nodes(dst)
         pos_logits = self.decoder(z_src, z_dst)
-
+        z_neg = self._embed_nodes(neg_dst.reshape(-1)).view(
+            neg_dst.size(0),
+            neg_dst.size(1),
+            -1,
+        )
+        neg_logits = self.decoder.score_candidates(z_src, z_neg)
         if num_negatives == 1:
-            neg_logits = self.decoder(z_src, self._embed_nodes(neg_dst))
-        else:
-            raise NotImplementedError("num_negatives > 1 not implemented")
+            neg_logits = neg_logits.squeeze(1)
 
         self._update_from_tensors(session_idx, item_idx_tgn, t_sec, msg)
         return pos_logits, neg_logits

@@ -29,6 +29,8 @@ class TGNLitModule(NextItemLitModule):
         num_sessions_train: int,
         *,
         num_negatives: int = 1,
+        negative_sampling: str = "uniform",
+        negative_popularity_alpha: float = 1.0,
         eval_num_negatives: int = 99,
         eval_seed: int | None = None,
         memory_dim: int = 172,
@@ -53,6 +55,17 @@ class TGNLitModule(NextItemLitModule):
         )
         self.save_hyperparameters(ignore=("pop_baseline_metrics",))
         self.num_negatives = num_negatives
+        self.negative_sampling = negative_sampling
+        self.negative_popularity_alpha = float(negative_popularity_alpha)
+        if self.num_negatives < 1:
+            raise ValueError(f"num_negatives must be >= 1, got {self.num_negatives}")
+        if self.negative_sampling not in {"uniform", "popularity"}:
+            raise ValueError(
+                f"Unsupported negative_sampling={self.negative_sampling!r}; "
+                "expected 'uniform' or 'popularity'"
+            )
+        if self.negative_popularity_alpha <= 0.0:
+            raise ValueError("negative_popularity_alpha must be > 0")
         self.fast_eval = fast_eval
         self.model = TGNModel(
             num_items=num_items,
@@ -66,6 +79,8 @@ class TGNLitModule(NextItemLitModule):
         )
         self._train_events: TGNEventTensors | None = None
         self._eval_events: TGNEventTensors | None = None
+        self._train_popularity_weights: Tensor | None = None
+        self._train_negative_generator: torch.Generator | None = None
         self._bce_criterion = torch.nn.BCEWithLogitsLoss()
 
     def set_event_tensors(
@@ -94,6 +109,17 @@ class TGNLitModule(NextItemLitModule):
         datamodule = self.trainer.datamodule
         if datamodule is not None and hasattr(datamodule, "attach_events_to_module"):
             datamodule.attach_events_to_module(self)
+        if datamodule is not None and hasattr(datamodule, "train_item_sampling_weights"):
+            weights = datamodule.train_item_sampling_weights(
+                alpha=self.negative_popularity_alpha
+            )
+            self._train_popularity_weights = weights.to(self.device)
+        else:
+            self._train_popularity_weights = None
+        seed = self._eval_base_seed()
+        gen = torch.Generator(device=self.device)
+        gen.manual_seed(seed + 10_000)
+        self._train_negative_generator = gen
 
     def _init_validation_candidate_generator(self) -> None:
         base_seed = self._eval_base_seed()
@@ -192,15 +218,26 @@ class TGNLitModule(NextItemLitModule):
         return popularity_top_k_tgn_indices(processed_dir, k=self.pop_baseline_k)
 
     def training_step(self, batch: Any, batch_idx: int) -> Tensor:
+        popularity = (
+            self._train_popularity_weights if self.negative_sampling == "popularity" else None
+        )
+        if self.negative_sampling == "popularity" and popularity is None:
+            raise RuntimeError(
+                "negative_sampling='popularity' requires train sampling weights from data module"
+            )
         pos_logits, neg_logits = self.model.score_pos_neg(
             batch["session_idx"],
             batch["item_idx_tgn"],
             batch["t_sec"],
             batch["msg"],
             num_negatives=self.num_negatives,
+            negative_sampling=self.negative_sampling,
+            popularity_weights=popularity,
+            generator=self._train_negative_generator,
         )
-        loss = self._bce_criterion(pos_logits, torch.ones_like(pos_logits))
-        loss = loss + self._bce_criterion(neg_logits, torch.zeros_like(neg_logits))
+        pos_loss = self._bce_criterion(pos_logits, torch.ones_like(pos_logits))
+        neg_loss = self._bce_criterion(neg_logits, torch.zeros_like(neg_logits))
+        loss = pos_loss + neg_loss
         self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss
 

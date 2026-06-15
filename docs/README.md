@@ -50,6 +50,7 @@ Gdzie szukać implementacji w repozytorium:
 |--------|--------------|----------|
 | Surowe dane | [`scripts/download_raw_data.py`](../scripts/download_raw_data.py), `data/raw/*.dat` | [`data-and-eda.md`](data-and-eda.md) |
 | EDA | [`notebooks/eda_yoochose.ipynb`](../notebooks/eda_yoochose.ipynb) | [`data-and-eda.md`](data-and-eda.md) |
+| Demo kaskadowości (slajd) | [`notebooks/cascade_sliding_window_demo.ipynb`](../notebooks/cascade_sliding_window_demo.ipynb) | [`data-and-eda.md`](data-and-eda.md) |
 | Walidacja preprocessingu | [`notebooks/validate_preprocessing.ipynb`](../notebooks/validate_preprocessing.ipynb) | [`data-and-eda.md`](data-and-eda.md), [`artifacts.md`](artifacts.md) |
 | Preprocessing | [`src/preprocessing/`](../src/preprocessing/) | [`preprocessing.md`](preprocessing.md) |
 | Config preprocessingu | [`config/preprocessing.yaml`](../config/preprocessing.yaml), [`src/preprocessing/config.py`](../src/preprocessing/config.py) | [`data-and-eda.md`](data-and-eda.md), [`preprocessing.md`](preprocessing.md) |

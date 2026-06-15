@@ -27,32 +27,52 @@ def sample_negative_items(
     num_items: int,
     num_negatives: int = 1,
     *,
+    sampling: str = "uniform",
+    popularity_weights: Tensor | None = None,
     generator: torch.Generator | None = None,
 ) -> Tensor:
-    """Uniform negative item indices in ``0 .. num_items - 1``."""
+    """Negative item indices in ``0 .. num_items - 1`` using configured sampling."""
     if num_negatives < 1:
         raise ValueError(f"num_negatives must be >= 1, got {num_negatives}")
+    if sampling not in {"uniform", "popularity"}:
+        raise ValueError(f"Unsupported sampling strategy: {sampling!r}")
     batch_size = positive_items.size(0)
     device = positive_items.device
-    neg = torch.randint(
-        0,
-        num_items,
-        (batch_size, num_negatives),
-        device=device,
-        generator=generator,
-    )
+
+    def _draw(shape: tuple[int, ...]) -> Tensor:
+        if sampling == "uniform":
+            return torch.randint(
+                0,
+                num_items,
+                shape,
+                device=device,
+                generator=generator,
+            )
+        if popularity_weights is None:
+            raise ValueError("popularity_weights are required for popularity sampling")
+        if popularity_weights.ndim != 1 or popularity_weights.numel() != num_items:
+            raise ValueError("popularity_weights must be 1D with length num_items")
+        weights = popularity_weights.to(device=device, dtype=torch.float32)
+        if torch.any(weights < 0):
+            raise ValueError("popularity_weights must be non-negative")
+        total = float(weights.sum().item())
+        if total <= 0.0:
+            raise ValueError("popularity_weights must have a positive sum")
+        draws = torch.multinomial(
+            weights / total,
+            num_samples=int(torch.tensor(shape).prod().item()),
+            replacement=True,
+            generator=generator,
+        )
+        return draws.view(*shape)
+
+    neg = _draw((batch_size, num_negatives))
     for _ in range(3):
         clash = neg.eq(positive_items.unsqueeze(1))
         if not clash.any():
             break
         resample_count = int(clash.sum().item())
-        neg[clash] = torch.randint(
-            0,
-            num_items,
-            (resample_count,),
-            device=device,
-            generator=generator,
-        )
+        neg[clash] = _draw((resample_count,))
     return neg.squeeze(1) if num_negatives == 1 else neg
 
 

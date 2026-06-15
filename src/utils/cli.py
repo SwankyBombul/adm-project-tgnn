@@ -174,6 +174,32 @@ def resolve_checkpoint_path(
     return str(resolve_saved_checkpoint(model_name, run_name, ckpt_path))
 
 
+def _resolve_ckpt_path_for_read(sub_cfg: Any, *, model_name: str, run_name: str) -> Path | None:
+    """Return an on-disk checkpoint path for hyperparameter lookup (``test`` only)."""
+    ckpt_path = _nested_get(sub_cfg, "ckpt_path")
+    if ckpt_path is None:
+        return None
+    if ckpt_path in {"best", "last"}:
+        ckpt_path = resolve_checkpoint_path(ckpt_path, model_name=model_name, run_name=run_name)
+    if ckpt_path is None:
+        return None
+    path = Path(ckpt_path)
+    if not path.is_absolute():
+        path = get_project_root() / path
+    return path if path.is_file() else None
+
+
+def apply_tgn_checkpoint_hparams(model_cfg: Any, ckpt_path: Path) -> None:
+    """Match TGN graph size to a saved checkpoint (memory tensors are split-sized)."""
+    import torch
+
+    checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    hparams = checkpoint.get("hyper_parameters") or {}
+    for key in ("num_sessions_train", "num_items"):
+        if key in hparams:
+            _set_init_arg(model_cfg, key, hparams[key])
+
+
 class AdmLightningCLI(LightningCLI):
     """CLI entry point: ``fit`` and ``evaluate`` (mapped to Lightning ``test``)."""
 
@@ -201,18 +227,8 @@ class AdmLightningCLI(LightningCLI):
 
         data_cfg = sub_cfg.get("data")
         model_cfg = sub_cfg.get("model")
-        if data_cfg and model_cfg:
-            link_model_config_from_meta(
-                data_cfg,
-                model_cfg,
-                include_tgn_challenge_sessions=self.subcommand == "test",
-            )
-
         model_name = infer_model_name(data_cfg) if data_cfg else DEFAULT_MODEL_NAME
         run_name = infer_run_name(sub_cfg)
-
-        if self.subcommand == "fit":
-            configure_fit_saved_model_dirs(sub_cfg, model_name, run_name)
 
         if self.subcommand == "test":
             ckpt_path = _nested_get(sub_cfg, "ckpt_path")
@@ -223,3 +239,25 @@ class AdmLightningCLI(LightningCLI):
                     run_name=run_name,
                 )
                 _set_subcfg_value(sub_cfg, "ckpt_path", resolved)
+
+        if data_cfg and model_cfg:
+            # TGN memory is sized for train/val/test_internal only (not challenge).
+            link_model_config_from_meta(
+                data_cfg,
+                model_cfg,
+                include_tgn_challenge_sessions=False,
+            )
+
+        if self.subcommand == "test" and model_cfg:
+            ckpt_file = _resolve_ckpt_path_for_read(
+                sub_cfg,
+                model_name=model_name,
+                run_name=run_name,
+            )
+            if ckpt_file is not None and "tgn" in str(
+                _nested_get(model_cfg, "class_path") or ""
+            ).lower():
+                apply_tgn_checkpoint_hparams(model_cfg, ckpt_file)
+
+        if self.subcommand == "fit":
+            configure_fit_saved_model_dirs(sub_cfg, model_name, run_name)

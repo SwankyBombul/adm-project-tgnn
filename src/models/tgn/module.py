@@ -149,13 +149,18 @@ class TGNLitModule(NextItemLitModule):
                 self.model.set_session_offset(datamodule.session_offset(split))
         super().on_test_batch_start(batch, batch_idx, dataloader_idx)
 
+    def _ensure_train_events_on_device(self) -> None:
+        if self._train_events is None:
+            return
+        if self._train_events.event_id.device != self.device:
+            self._train_events = self._train_events.to(self.device)
+
     def _warmup_for_eval(self) -> None:
         self.model.reset_state()
         self.model.set_session_offset(0)
         if self._train_events is None:
             return
-        if self._train_events.device != self.device:
-            self._train_events = self._train_events.to(self.device)
+        self._ensure_train_events_on_device()
         max_eid = int(self._train_events.event_id.max().item())
         if max_eid < 0:
             return

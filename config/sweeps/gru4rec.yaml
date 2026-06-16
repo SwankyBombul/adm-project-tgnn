@@ -1,6 +1,6 @@
 # W&B Sweep: GRU4Rec hyperparameter search
 # Usage:
-#   wandb sweep scripts/sweeps/gru4rec.yaml
+#   wandb sweep config/sweeps/gru4rec.yaml
 #   wandb agent <sweep_id>
 #
 # Uses ${args} — W&B expands chosen params as CLI overrides for LightningCLI.

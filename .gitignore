@@ -23,6 +23,7 @@ Thumbs.db
 
 # Training artifacts (saved models, W&B, Lightning logs)
 /saved_models/
+/checkpoints/
 /lightning_logs/
 wandb/
 *.ckpt

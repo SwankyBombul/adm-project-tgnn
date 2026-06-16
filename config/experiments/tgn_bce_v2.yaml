@@ -21,7 +21,10 @@ trainer:
       init_args:
         monitor: val/sampled_recall@20
         mode: max
-        patience: 3
+        patience: 1
+trainer:
+  max_epochs: 5
+  callbacks:
 
 data:
   init_args:
@@ -30,7 +33,10 @@ data:
 
 model:
   init_args:
-    num_negatives: 10
-    negative_sampling: popularity
-    negative_popularity_alpha: 1.0
-    weight_decay: 0.00001
+    memory_dim: 128
+    embedding_dim: 64
+    n_neighbors: 5
+    time_dim: 64
+    learning_rate: 0.00003      # 3e-5 (3× mniejszy niż baseline)
+    weight_decay: 0.0001        # 10× większy niż baseline
+    num_negatives: 10           # trudniejszy sygnał BCE

@@ -7,5 +7,5 @@ data:
     # Val and evaluate use sampled ranking (eval_num_negatives); fit val subsampled below.
     example_batch_size: 32
     # Subsample val during fit (~2k examples); set null for full val in test/evaluate.
-    val_max_examples: null
+    val_max_examples: 2000
     num_workers: 0

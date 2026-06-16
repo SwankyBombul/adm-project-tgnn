@@ -15,6 +15,17 @@ from torch.utils.data import Dataset
 MSG_COLUMNS = ("cat_bucket_idx", "price_log", "quantity", "event_type")
 
 
+def _column_as_tensor(column, dtype: torch.dtype) -> Tensor:
+    """Convert a PyArrow column to a PyTorch tensor (always writable)."""
+    array = np.asarray(column.to_numpy(zero_copy_only=False))
+    return torch.tensor(array, dtype=dtype)
+
+
+def _series_to_tensor(series: pd.Series, dtype: torch.dtype) -> Tensor:
+    """Convert a pandas series to a PyTorch tensor (always writable)."""
+    return torch.tensor(series.to_numpy(copy=True), dtype=dtype)
+
+
 @dataclass(frozen=True)
 class TGNEventTensors:
     """Columnar event stream for a split."""
@@ -29,6 +40,10 @@ class TGNEventTensors:
     @property
     def num_events(self) -> int:
         return int(self.event_id.size(0))
+
+    @property
+    def device(self) -> torch.device:
+        return self.event_id.device
 
     def slice_events(self, start: int, end: int) -> dict[str, Tensor]:
         """Inclusive ``event_id`` range ``[start, end]``."""
@@ -58,15 +73,12 @@ def load_events_tensors(path: Path) -> TGNEventTensors:
         path,
         columns=["event_id", "session_idx", "item_idx_tgn", "t_sec", *MSG_COLUMNS],
     )
-    event_id = torch.as_tensor(table.column("event_id").to_numpy(), dtype=torch.long)
-    session_idx = torch.as_tensor(table.column("session_idx").to_numpy(), dtype=torch.long)
-    item_idx = torch.as_tensor(table.column("item_idx_tgn").to_numpy(), dtype=torch.long)
-    t_sec = torch.as_tensor(table.column("t_sec").to_numpy(), dtype=torch.float32)
+    event_id = _column_as_tensor(table.column("event_id"), torch.long)
+    session_idx = _column_as_tensor(table.column("session_idx"), torch.long)
+    item_idx = _column_as_tensor(table.column("item_idx_tgn"), torch.long)
+    t_sec = _column_as_tensor(table.column("t_sec"), torch.float32)
     msg = torch.stack(
-        [
-            torch.as_tensor(table.column(col).to_numpy(), dtype=torch.float32)
-            for col in MSG_COLUMNS
-        ],
+        [_column_as_tensor(table.column(col), torch.float32) for col in MSG_COLUMNS],
         dim=-1,
     )
     num_sessions = int(session_idx.max().item()) + 1 if len(session_idx) else 0
@@ -108,15 +120,11 @@ class TGNExampleDataset(Dataset[TGNExampleBatch]):
         if max_examples is not None and len(df) > max_examples:
             stride = max(len(df) // max_examples, 1)
             df = df.iloc[::stride].head(max_examples).reset_index(drop=True)
-        self._session_idx = torch.as_tensor(df["session_idx"].to_numpy(), dtype=torch.long)
-        self._target_item = torch.as_tensor(
-            df["target_item_idx_tgn"].to_numpy(), dtype=torch.long
-        )
-        self._target_t = torch.as_tensor(df["target_t_sec"].to_numpy(), dtype=torch.float32)
-        self._target_event = torch.as_tensor(df["target_event_id"].to_numpy(), dtype=torch.long)
-        self._prefix_last = torch.as_tensor(
-            df["prefix_last_event_id"].to_numpy(), dtype=torch.long
-        )
+        self._session_idx = _series_to_tensor(df["session_idx"], torch.long)
+        self._target_item = _series_to_tensor(df["target_item_idx_tgn"], torch.long)
+        self._target_t = _series_to_tensor(df["target_t_sec"], torch.float32)
+        self._target_event = _series_to_tensor(df["target_event_id"], torch.long)
+        self._prefix_last = _series_to_tensor(df["prefix_last_event_id"], torch.long)
 
     def __len__(self) -> int:
         return int(self._session_idx.size(0))

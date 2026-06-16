@@ -1,0 +1,48 @@
+# W&B Sweep: GRU4Rec hyperparameter search
+# Usage:
+#   wandb sweep scripts/sweeps/gru4rec.yaml
+#   wandb agent <sweep_id>
+#
+# Uses ${args} — W&B expands chosen params as CLI overrides for LightningCLI.
+# Param keys match exactly the jsonargparse paths (model.init_args.*, data.init_args.*).
+program: python
+method: bayes
+metric:
+  name: val/recall@20
+  goal: maximize
+early_terminate:
+  type: hyperband
+  s: 2
+  eta: 2
+  max_iter: 3
+parameters:
+  model.init_args.learning_rate:
+    distribution: log_uniform_values
+    min: 0.0001
+    max: 0.01
+  model.init_args.embedding_dim:
+    values: [64, 128, 256]
+  model.init_args.hidden_dim:
+    values: [64, 128, 256]
+  model.init_args.num_layers:
+    values: [1, 2, 3]
+  model.init_args.dropout:
+    values: [0.0, 0.1, 0.2, 0.3]
+  data.init_args.batch_size:
+    values: [128, 256, 512]
+command:
+  - uv
+  - run
+  - ${program}
+  - -m
+  - src.main
+  - fit
+  - -c
+  - config/default.yaml
+  - -c
+  - config/data/gru4rec_yoochoose.yaml
+  - -c
+  - config/model/gru4rec.yaml
+  - -c
+  - config/experiments/gru4rec_baseline.yaml
+  - ${args}

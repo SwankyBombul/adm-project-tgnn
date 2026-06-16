@@ -41,7 +41,9 @@ class TGNLitModule(NextItemLitModule):
         item_embed_chunk_size: int = 512,
         fast_eval_item_chunk_size: int = 4096,
         fast_eval: bool = True,
+        val_fast_eval: bool = False,
         learning_rate: float = 1e-4,
+        weight_decay: float = 0.0,
         metric_ks: tuple[int, ...] = DEFAULT_KS,
         pop_baseline_metrics: dict[str, float] | None = None,
         compute_pop_baseline: bool = True,
@@ -68,6 +70,8 @@ class TGNLitModule(NextItemLitModule):
         if self.negative_popularity_alpha <= 0.0:
             raise ValueError("negative_popularity_alpha must be > 0")
         self.fast_eval = fast_eval
+        self.val_fast_eval = val_fast_eval
+        self.weight_decay = weight_decay
         self.model = TGNModel(
             num_items=num_items,
             num_sessions=num_sessions_train,
@@ -83,6 +87,8 @@ class TGNLitModule(NextItemLitModule):
         self._train_popularity_weights: Tensor | None = None
         self._train_negative_generator: torch.Generator | None = None
         self._bce_criterion = torch.nn.BCEWithLogitsLoss()
+        self._skip_eval_warmup = False
+        self._train_batches_seen = 0
 
     def set_event_tensors(
         self,
@@ -97,8 +103,17 @@ class TGNLitModule(NextItemLitModule):
     def on_train_epoch_start(self) -> None:
         self.model.reset_state()
         self.model.set_session_offset(0)
+        self._skip_eval_warmup = False
+        self._train_batches_seen = 0
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+    def on_train_epoch_end(self) -> None:
+        datamodule = self.trainer.datamodule if self.trainer is not None else None
+        full_batches = 0
+        if datamodule is not None and hasattr(datamodule, "train_event_dataset"):
+            full_batches = len(datamodule.train_event_dataset)
+        self._skip_eval_warmup = full_batches > 0 and self._train_batches_seen >= full_batches
 
     def on_validation_epoch_end(self) -> None:
         super().on_validation_epoch_end()
@@ -133,7 +148,13 @@ class TGNLitModule(NextItemLitModule):
         if datamodule is not None and hasattr(datamodule, "set_eval_split"):
             datamodule.set_eval_split(self, "val")
         self._init_validation_candidate_generator()
-        self._warmup_for_eval()
+        if self._skip_eval_warmup:
+            rank_zero_info(
+                "TGN eval: skipping warmup (memory already at end of train stream)"
+            )
+            self.model.set_session_offset(0)
+        else:
+            self._warmup_for_eval()
         self.model.reset_replay_cursor()
         if datamodule is not None and hasattr(datamodule, "session_offset"):
             self.model.set_session_offset(datamodule.session_offset("val"))
@@ -155,11 +176,18 @@ class TGNLitModule(NextItemLitModule):
                 self.model.set_session_offset(datamodule.session_offset(split))
         super().on_test_batch_start(batch, batch_idx, dataloader_idx)
 
+    def _ensure_train_events_on_device(self) -> None:
+        if self._train_events is None:
+            return
+        if self._train_events.event_id.device != self.device:
+            self._train_events = self._train_events.to(self.device)
+
     def _warmup_for_eval(self) -> None:
         self.model.reset_state()
         self.model.set_session_offset(0)
         if self._train_events is None:
             return
+        self._ensure_train_events_on_device()
         max_eid = int(self._train_events.event_id.max().item())
         if max_eid < 0:
             return
@@ -192,6 +220,8 @@ class TGNLitModule(NextItemLitModule):
     def compute_sampled_scores_and_targets(
         self,
         batch: TGNExampleBatch,
+        *,
+        fast_eval: bool | None = None,
     ) -> tuple[Tensor, Tensor, Tensor]:
         if not isinstance(batch, TGNExampleBatch):
             raise TypeError(f"Expected TGNExampleBatch, got {type(batch)}")
@@ -200,6 +230,8 @@ class TGNLitModule(NextItemLitModule):
         generator = self._eval_candidate_generator
         if generator is None:
             raise RuntimeError("test candidate generator not initialized")
+
+        eval_fast = fast_eval if fast_eval is not None else self.fast_eval
 
         candidates = build_candidate_sets(
             batch.target_item_idx_tgn,
@@ -211,7 +243,7 @@ class TGNLitModule(NextItemLitModule):
             batch,
             self._eval_events,
             candidates.ids,
-            fast_eval=self.fast_eval,
+            fast_eval=eval_fast,
         )
         return scores, targets, candidates.ids
 
@@ -236,14 +268,14 @@ class TGNLitModule(NextItemLitModule):
             popularity_weights=popularity,
             generator=self._train_negative_generator,
         )
-        pos_loss = self._bce_criterion(pos_logits, torch.ones_like(pos_logits))
-        neg_loss = self._bce_criterion(neg_logits, torch.zeros_like(neg_logits))
-        loss = pos_loss + neg_loss
+        loss = self._bce_criterion(pos_logits, torch.ones_like(pos_logits))
+        loss = loss + self._bce_criterion(neg_logits, torch.zeros_like(neg_logits))
         self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss
 
     def on_train_batch_end(self, outputs: Any, batch: Any, batch_idx: int) -> None:
         self.model.detach_memory()
+        self._train_batches_seen += 1
 
     def on_validation_model_eval(self) -> None:
         # Drop pending raw messages before Lightning calls model.eval().
@@ -252,7 +284,10 @@ class TGNLitModule(NextItemLitModule):
     def validation_step(self, batch: Any, batch_idx: int) -> None:
         if not isinstance(batch, TGNExampleBatch):
             raise TypeError(f"Expected TGNExampleBatch, got {type(batch)}")
-        scores, targets, candidate_ids = self.compute_sampled_scores_and_targets(batch)
+        scores, targets, candidate_ids = self.compute_sampled_scores_and_targets(
+            batch,
+            fast_eval=self.val_fast_eval,
+        )
         self._log_sampled_split_metrics(
             "val",
             scores,
@@ -263,7 +298,11 @@ class TGNLitModule(NextItemLitModule):
         )
 
     def configure_optimizers(self) -> Any:
-        return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+        return torch.optim.Adam(
+            self.parameters(),
+            lr=self.learning_rate,
+            weight_decay=self.weight_decay,
+        )
 
     def load_state_dict(self, state_dict: dict[str, Any], strict: bool = True) -> Any:
         """Allow eval graphs larger than train (e.g. ``challenge_test`` session slots)."""

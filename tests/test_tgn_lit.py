@@ -189,6 +189,93 @@ def test_tgn_lit_test_step_logs_sampled_metrics(tmp_path: Path) -> None:
     assert "test_internal/sampled_recall@20" in logged
 
 
+def test_tgn_lit_multi_negative_bce_training_step() -> None:
+    module = TGNLitModule(
+        num_items=5,
+        num_sessions_train=2,
+        num_negatives=3,
+        embedding_dim=16,
+        memory_dim=32,
+        time_dim=16,
+        n_neighbors=2,
+    )
+    batch = {
+        "session_idx": torch.tensor([0, 1]),
+        "item_idx_tgn": torch.tensor([1, 2]),
+        "t_sec": torch.tensor([1.0, 4.0]),
+        "msg": torch.zeros(2, 4),
+    }
+    pos_logits, neg_logits = module.model.score_pos_neg(
+        batch["session_idx"],
+        batch["item_idx_tgn"],
+        batch["t_sec"],
+        batch["msg"],
+        num_negatives=3,
+    )
+    assert pos_logits.shape == (2,)
+    assert neg_logits.shape == (2, 3)
+    loss = module.training_step(batch, 0)
+    assert loss.ndim == 0
+
+
+def test_tgn_val_fast_eval_differs_from_full_gnn(tmp_path: Path) -> None:
+    processed = write_tgn_processed_dir(tmp_path)
+    events = load_events_tensors(processed / "train" / "tgn" / "events.parquet")
+    module = TGNLitModule(
+        num_items=5,
+        num_sessions_train=2,
+        eval_num_negatives=2,
+        eval_seed=0,
+        embedding_dim=16,
+        memory_dim=32,
+        time_dim=16,
+        n_neighbors=2,
+        fast_eval=True,
+        val_fast_eval=False,
+    )
+    module.set_event_tensors(eval_events=events)
+    module._eval_candidate_generator = torch.Generator().manual_seed(0)
+    batch = _example_batch()
+
+    module.model.reset_state()
+    scores_full, _, _ = module.compute_sampled_scores_and_targets(batch, fast_eval=False)
+    module.model.reset_state()
+    scores_fast, _, _ = module.compute_sampled_scores_and_targets(batch, fast_eval=True)
+
+    assert scores_full.shape == scores_fast.shape
+    assert not torch.allclose(scores_full, scores_fast)
+
+
+def test_tgn_lit_skips_warmup_when_memory_warm(tmp_path: Path) -> None:
+    processed = write_tgn_processed_dir(tmp_path)
+    events = load_events_tensors(processed / "train" / "tgn" / "events.parquet")
+    module = TGNLitModule(
+        num_items=5,
+        num_sessions_train=2,
+        embedding_dim=16,
+        memory_dim=32,
+        time_dim=16,
+        n_neighbors=2,
+    )
+    module.set_event_tensors(train_events=events, eval_events=events)
+    module.model.reset_state()
+    max_eid = int(events.event_id.max().item())
+    module.model.replay_events_up_to(events, max_eid)
+    mem_before = module.model.memory.memory.clone()
+
+    from src.data_modules.tgn import TGNDataModule
+
+    dm = TGNDataModule(processed, val_max_examples=2)
+    dm.setup("fit")
+    module.trainer = MagicMock()
+    module.trainer.datamodule = dm
+    module._skip_eval_warmup = True
+
+    module.on_validation_epoch_start()
+
+    assert torch.allclose(module.model.memory.memory, mem_before)
+
+
 def test_tgn_lit_load_expanded_memory_checkpoint() -> None:
     small = TGNLitModule(
         num_items=5,

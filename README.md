@@ -261,6 +261,31 @@ uv run python -m src.main evaluate `
   --ckpt_path best
 ```
 
+### Automatyczny search hiperparametrów (W&B Sweep)
+
+Korzystamy z **wbudowanego mechanizmu W&B Sweep + `${args}`** — żadne zmiany w kodzie nie są potrzebne. Nazwy parametrów w YAML-u odpowiadają ścieżkom `jsonargparse` (np. `model.init_args.learning_rate`). `wandb agent` rozwija `${args}` na `--model.init_args.learning_rate=0.001 ...` i przekazuje do LightningCLI jako CLI overrides.
+
+```powershell
+# 1. Utwórz sweep (raz) — zwróci <sweep_id>
+wandb sweep scripts/sweeps/gru4rec.yaml
+
+# 2. Uruchom agenta (ile chcesz procesów równolegle)
+wandb agent <sweep_id>
+
+# TAGNN:
+wandb sweep scripts/sweeps/tagnn.yaml
+wandb agent <sweep_id>
+```
+
+Domyślnie `method: bayes` + `early_terminate: hyperband` — nieobiecujące trial-e są zabijane wcześnie. Parametry:
+
+| Model | Szukane hiperparametry |
+|-------|----------------------|
+| **GRU4Rec** | `learning_rate` (log), `embedding_dim`, `hidden_dim`, `num_layers`, `dropout`, `batch_size` |
+| **TAGNN** | `learning_rate` (log), `hidden_dim`, `gnn_steps`, `nonhybrid`, `weight_decay` (log), `batch_size`, `max_seq_len` |
+
+Wyniki wszystkich trial-i widać w [W&B Dashboard](https://wandb.ai/project-nn/adm-project-tgnn) w zakładce **Sweeps**.
+
 ### Zapis modeli (`saved_models/`)
 
 ```text

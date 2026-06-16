@@ -125,7 +125,7 @@ Logika targetów train vs val/test w [`examples.py`](../src/preprocessing/exampl
 - Obowiązkowy baseline **POP@20** — [`src/evaluation/baselines.py`](../src/evaluation/baselines.py), test: [`tests/test_baselines.py`](../tests/test_baselines.py).
 - Negatywy ważone popularnością — kontekst dla TGN i sampled eval: [`src/evaluation/sampled.py`](../src/evaluation/sampled.py).
 
-Uwaga z prezentacji ([`first_presentation.md`](first_presentation.md)): kaskadowość w trainie może zawyżać częstość lokalnych przejść (np. `c1→c2` vs globalnie częstszy `c7`).
+Uwaga z planowania projektu: kaskadowość w trainie może zawyżać częstość **lokalnych** przejść (np. `c1→c2` pojawia się często w sliding window, podczas gdy globalnie częstszy jest `c7`). Dlatego obowiązkowy jest baseline POP@20 i analiza `lift` w EDA — patrz [`first_presentation.md`](first_presentation.md) §3.
 
 **Jak to zaprezentować (3 kroki):**
 

@@ -7,22 +7,6 @@
 
 ---
 
-## TODO 02.06.26
-
-* [Paper TAGNN](https://arxiv.org/pdf/2005.02844)
-    
-    zamiast sr-gnn, użyc tagnn który ma atencje i z bomby będzie lepszy - nie ma sensu tgn porównywać z sr-gnn
-    
-* trzeba uważać na kaskadowość w zbiorze uczącym jeśli mamy 
-
-    * c1->c2->+100 innych produktow
-
-    albo mamy:
-    
-    * c1->c7 15 razy mamy taką sekwencję
-
-    to model w zbiorze uczącym nauczy się rekomendować po c1 - c2, bo przy budowie sekwencji model zobaczy c1->c2 100 razy a tak naprawde to c7 jest częstszym produktem do rekomendacji
-
 ## 1. Definicja problemu
 
 ### 1.1 Kontekst biznesowy
@@ -100,14 +84,16 @@ Opcjonalnie (rozszerzenie): plik zakupów (`yoochoose-buys.dat`) jako drugi typ 
 Porównanie na **tym samym** podzbiorze Yoochoose:
 
 ```text
-GRU4Rec (sekwencja)  ⟷  SR-GNN (graf statyczny/sesyjny)  ⟷  TGN (graf dynamiczny, czas ciągły)
+GRU4Rec (sekwencja)  ⟷  TAGNN (graf sesyjny + target attention)  ⟷  TGN (graf dynamiczny, czas ciągły)
 ```
 
 | Model | Idea | Czas |
 |-------|------|------|
 | **GRU4Rec** | Sesja = sekwencja ID produktów; GRU → następny item | Ukryty w kolejności kroków |
-| **SR-GNN** | Sesja = mały graf skierowany (kliknięcia → krawędzie); GGNN + attention pooling | Dyskretna kolejność, bez ms |
+| **TAGNN** | Sesja = graf skierowany; GGNN + target attention (SIGIR 2020) | Dyskretna kolejność w sesji |
 | **TGN** | Globalny graf dwudzielny sesja–item; pamięć + wiadomości + temporal attention | Ciągły, $\Delta t$ |
+
+**Decyzja projektowa:** zamiast SR-GNN wybraliśmy **TAGNN** — target attention daje silniejszy sygnał przy next-item prediction; porównanie z TGN ma sens na osi sekwencja → graf sesyjny → graf dynamiczny ([`models/tagnn.md`](models/tagnn.md)).
 
 ### 3.2 Architektura docelowa: TGN-attn
 
@@ -153,32 +139,32 @@ Nigdy nie aktualizujemy pamięci zdarzeniem **przed** jego przewidzeniem w tym s
 
 ### Faza 1 — Wspólny preprocessing
 
-- [ ] Pobranie / podpróbkowanie Yoochoose  
-- [ ] Chronologiczny split + mapowanie ID + cechy krawędzi  
-- [ ] Eksport: sekwencje (GRU4Rec), grafy sesyjne (SR-GNN), strumień interakcji (TGN)
+- [x] Pobranie / podpróbkowanie Yoochoose  
+- [x] Chronologiczny split + mapowanie ID + cechy krawędzi  
+- [x] Eksport: sekwencje (GRU4Rec), grafy sesyjne (TAGNN), strumień interakcji (TGN)
 
 ### Faza 2 — GRU4Rec (baseline)
 
-- `nn.Embedding` → `nn.GRU` → warstwa liniowa na cały katalog itemów  
-- Wejście: item w $t$; target: item w $t+1$  
-- Loss: **Cross-Entropy** (wieloklasowa)
+- [x] `nn.Embedding` → `nn.GRU` → warstwa liniowa na cały katalog itemów  
+- [x] Wejście: item w $t$; target: item w $t+1$  
+- [x] Loss: **Cross-Entropy** (wieloklasowa)
 
-### Faza 3 — SR-GNN
+### Faza 3 — TAGNN
 
-- Sesja $[A,B,C]$ → węzły $\{A,B,C\}$, krawędzie $(A\to B), (B\to C)$  
-- `GatedGraphConv` + attention pooling reprezentacji sesji  
-- Skalarne podobieństwo do embeddingów kandydatów
+- [x] Sesja $[A,B,C]$ → węzły $\{A,B,C\}$, krawędzie $(A\to B), (B\to C)$  
+- [x] GGNN + target attention (port CRIPAC-DIG/TAGNN)  
+- [x] Skalarne podobieństwo do embeddingów kandydatów
 
 ### Faza 4 — TGN
 
-- `TemporalData`: `(src=session, dst=item, t, edge_attr)` posortowane po czasie  
-- Konfiguracja: `TGNMemory`, Identity, Last, GRUCell, TemporalGraphAttention, $k=10$ neighbors  
-- Trening: negative sampling + `BCEWithLogitsLoss` + Raw Message Store
+- [x] `TemporalData`: `(src=session, dst=item, t, edge_attr)` posortowane po czasie  
+- [x] Konfiguracja: `TGNMemory`, Identity, Last, temporal attention, $k=10$ neighbors  
+- [x] Trening: negative sampling + `BCEWithLogitsLoss` + replay zdarzeń
 
 ### Faza 5 — Ewaluacja i raport
 
-- Te same metryki i ten sam zbiór testowy dla wszystkich modeli  
-- Porównanie czasu epoki i liczby parametrów (trade-off)
+- [x] Te same metryki i ten sam zbiór testowy dla wszystkich modeli  
+- [x] Porównanie na W&B ([`experiments.md`](experiments.md))
 
 ---
 
@@ -203,7 +189,7 @@ Dla każdej interakcji: ranking wszystkich itemów (lub próbka + pełna ewaluac
 - **TGAT** — temporal attention **bez** modułu pamięci (ablation vs TGN)  
 - **JODIE / DyRep** — pamięć bez pełnej agregacji GNN
 
-Priorytet: trójka **GRU4Rec → SR-GNN → TGN**.
+Priorytet: trójka **GRU4Rec → TAGNN → TGN** (zrealizowana w repozytorium).
 
 ---
 
@@ -211,17 +197,14 @@ Priorytet: trójka **GRU4Rec → SR-GNN → TGN**.
 
 - Rossi, E. et al. — *Temporal Graph Networks for Deep Learning on Dynamic Graphs* (TGN, TGN-attn)  
 - Hidasi, B. et al. — *Session-based Recommendations with Recurrent Neural Networks* (GRU4Rec)  
+- Yu, J. et al. — *TAGNN: Target Attentive Graph Neural Networks for Session-based Recommendation* (SIGIR 2020)  
 - Wu, S. et al. — *Session-based Recommendation with Graph Neural Networks* (SR-GNN)  
 - RecSys Challenge 2015 — dokumentacja Yoochoose  
 
 ---
 
-## 7. Następne kroki po prezentacji
+## 7. Stan realizacji
 
-1. Zaimplementować wspólny pipeline danych w repozytorium.  
-2. Baseline GRU4Rec (szybka walidacja pipeline’u).  
-3. SR-GNN na grafach sesyjnych.  
-4. TGN z konfiguracją z sekcji 3.2.  
-5. Tabela wyników + wykres trade-off jakość vs czas treningu.
+Wszystkie fazy z sekcji 4 są zaimplementowane. Baseline’y trenowaliśmy na **NVIDIA T4** w [Lightning AI Studio](https://lightning.ai/); wyniki na [W&B](https://wandb.ai/project-nn/adm-project-tgnn). Szczegóły techniczne: [`README.md`](README.md), [`experiments.md`](experiments.md).
 
 ---

@@ -37,7 +37,7 @@ Projekt z przedmiotu **Advanced Data Mining (ADM)** — rekomendacje sesyjne z w
 
 - **Zadanie:** next-item prediction w sesji e-commerce (na podstawie dotychczasowych kliknięć przewidzieć następny produkt).
 - **Model główny (docelowy):** TGN na grafie dynamicznym w czasie ciągłym (sesje ↔ produkty).
-- **Baseline:** modele sekwencyjne z grafowej reprezentacji sesji — na start **GRU4Rec**, później **TAGNN** (szczegóły w `docs/first_presentation.md`).
+- **Baseline:** **GRU4Rec** (sekwencja), **TAGNN** (graf sesyjny + target attention), **TGN** (graf dynamiczny) — szczegóły w [`docs/overview.md`](docs/overview.md).
 - **Dane:** kliknięcia, zakupy i test challenge'u Yoochoose; po EDA pracujemy na chronologicznym subsample **1/32** pełnych sesji.
 
 ## Dokumentacja techniczna
@@ -50,6 +50,9 @@ Szczegółowa dokumentacja (decyzje EDA, preprocessing, artefakty, mapa kodu): *
 | [`docs/data-and-eda.md`](docs/data-and-eda.md) | Decyzje z EDA i mapowanie na kod |
 | [`docs/preprocessing.md`](docs/preprocessing.md) | Pipeline preprocessingu end-to-end |
 | [`docs/artifacts.md`](docs/artifacts.md) | `meta.json`, kontrakt wejścia modeli |
+| [`docs/training.md`](docs/training.md) | LightningCLI, fit/evaluate, checkpointy |
+| [`docs/evaluation.md`](docs/evaluation.md) | Metryki, sampled Recall@K, POP baseline |
+| [`docs/experiments.md`](docs/experiments.md) | Macierz runów i W&B |
 
 ## Pipeline w skrócie
 
@@ -62,16 +65,14 @@ notebooks/eda_yoochose.ipynb  →  decyzje o subsample, splicie, metrykach
        ↓
 src/preprocessing/  →  data/processed/  (GRU4Rec, TAGNN, TGN w jednym przebiegu)
        ↓
-src/main.py (LightningCLI)  →  trening GRU4Rec  →  saved_models/ + W&B
-       ↓
-(planowane) TAGNN → TGN
+src/main.py (LightningCLI)  →  trening GRU4Rec / TAGNN / TGN  →  saved_models/ + W&B
 ```
 
 1. **Surowe dane** pobieramy skryptem z Kaggle (`scripts/download_raw_data.py`) — nie są w gicie.
-2. **EDA** w notebooku ustaliliśmy m.in. subsample 1/32, split 70/15/15 po czasie, sliding window na trainie i ostatni klik na val/test.
+2. **EDA** w notebooku ustaliliśmy m.in. subsample 1/32, split 70/15/15 po czasie, sliding window na trainie i ostatni klik na val/test. Notebooki wymagają wcześniejszego pobrania danych i preprocessingu.
 3. **Preprocessing** (`uv run python -m src.preprocessing`) zapisuje gotowe pliki pod trzy modele; kontrakt jest w `meta.json`.
 4. **Trening** idzie przez PyTorch Lightning CLI (`src/main.py`) z konfiguracją YAML; logi trafiają na [W&B](https://wandb.ai/project-nn/adm-project-tgnn).
-5. **Modele:** GRU4Rec (baseline sekwencyjny) i **TAGNN** (graf sesyjny + target attention); docelowo TGN.
+5. **Modele:** **GRU4Rec** (baseline sekwencyjny), **TAGNN** (graf sesyjny + target attention) i **TGN** (graf dynamiczny, BCE + sampled eval).
 
 ---
 
@@ -81,6 +82,7 @@ src/main.py (LightningCLI)  →  trening GRU4Rec  →  saved_models/ + W&B
 - [uv](https://docs.astral.sh/uv/) — środowisko wirtualne i zależności
 - Konto Kaggle + klucz API (do pobrania danych lokalnie)
 - Konto w zespole W&B **project-nn** (do logowania eksperymentów; poproś o zaproszenie, jeśli go nie masz)
+- Do treningu baseline’ów używaliśmy **GPU NVIDIA T4** w [Lightning AI Studio](https://lightning.ai/); lokalnie wystarczy maszyna z CUDA lub to samo studio
 
 ## Szybki start (lokalnie)
 
@@ -197,7 +199,9 @@ Konwencje indeksów i kontraktów wejściowych modeli są opisane w `meta.json` 
 
 Workflow: **`fit`** (train + val co epokę) → **`evaluate`** (osobno na `test_internal` i `challenge_test`).
 
-Trening baseline **GRU4Rec** i **TAGNN** uruchamiamy przez **LightningCLI** (`src/main.py`). Domyślny logger to **WandbLogger** — entity `project-nn`, project `adm-project-tgnn`.
+Trening **GRU4Rec**, **TAGNN** i **TGN** uruchamiamy przez **LightningCLI** (`src/main.py`). Domyślny logger to **WandbLogger** — entity `project-nn`, project `adm-project-tgnn`.
+
+Baseline’y produkcyjne trenowaliśmy na **NVIDIA T4** w **[Lightning AI Studio](https://lightning.ai/)**. Lokalnie projekt działa z `uv`; trening z `accelerator: gpu` wymaga CUDA.
 
 **Dashboard zespołu:** [https://wandb.ai/project-nn/adm-project-tgnn](https://wandb.ai/project-nn/adm-project-tgnn)
 
@@ -267,13 +271,13 @@ Korzystamy z **wbudowanego mechanizmu W&B Sweep + `${args}`** — żadne zmiany 
 
 ```powershell
 # 1. Utwórz sweep (raz) — zwróci <sweep_id>
-wandb sweep scripts/sweeps/gru4rec.yaml
+wandb sweep config/sweeps/gru4rec.yaml
 
 # 2. Uruchom agenta (ile chcesz procesów równolegle)
 wandb agent <sweep_id>
 
 # TAGNN:
-wandb sweep scripts/sweeps/tagnn.yaml
+wandb sweep config/sweeps/tagnn.yaml
 wandb agent <sweep_id>
 ```
 
@@ -322,13 +326,19 @@ adm-project-tgnn/
 │   ├── data-and-eda.md
 │   ├── preprocessing.md
 │   ├── artifacts.md
+│   ├── training.md
+│   ├── configuration.md
+│   ├── evaluation.md
+│   ├── experiments.md
+│   ├── models/                   # gru4rec.md, tagnn.md, tgn.md
 │   ├── first_presentation.md
 │   ├── adm_projekt_wm_mo.docx
 │   └── projekt_info.pdf
-├── notebooks/                    # EDA i walidacja preprocessingu
+├── notebooks/                    # EDA, demo kaskadowości, walidacja preprocessingu
 │   ├── eda_yoochose.ipynb
+│   ├── cascade_sliding_window_demo.ipynb
 │   └── validate_preprocessing.ipynb
-├── config/                       # YAML: preprocessing, trening GRU4Rec
+├── config/                       # YAML: preprocessing, trening wszystkich modeli
 ├── scripts/
 │   └── download_raw_data.py      # pobieranie danych z Kaggle → data/raw
 ├── src/

@@ -1,6 +1,6 @@
 # W&B Sweep: TAGNN hyperparameter search
 # Usage:
-#   wandb sweep scripts/sweeps/tagnn.yaml
+#   wandb sweep config/sweeps/tagnn.yaml
 #   wandb agent <sweep_id>
 #
 # Uses ${args} — W&B expands chosen params as CLI overrides for LightningCLI.

@@ -1,4 +1,4 @@
-"""Tests for GRU4Rec data utilities and W&B defaults."""
+"""Tests for training scaffold, collate helpers, and W&B defaults."""
 
 from __future__ import annotations
 

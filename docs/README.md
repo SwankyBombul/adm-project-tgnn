@@ -12,12 +12,18 @@ Katalog [`docs/`](.) zawiera głębszą dokumentację projektu ADM (rekomendacje
 | 2 | Poznać decyzje o danych (subsample, split, EDA) | [`data-and-eda.md`](data-and-eda.md) |
 | 3 | Uruchomić i zrozumieć pipeline preprocessingu | [`preprocessing.md`](preprocessing.md) |
 | 4 | Połączyć wyjście preprocessingu z treningiem | [`artifacts.md`](artifacts.md) |
+| 5 | Uruchomić trening i ewaluację | [`training.md`](training.md) |
+| 6 | Zrozumieć metryki i baseline POP | [`evaluation.md`](evaluation.md) |
+| 7 | Porównać runy i wyniki W&B | [`experiments.md`](experiments.md) |
 
 ```mermaid
 flowchart LR
     overview[overview.md] --> eda[data-and-eda.md]
     eda --> preproc[preprocessing.md]
     preproc --> artifacts[artifacts.md]
+    artifacts --> training[training.md]
+    training --> evaluation[evaluation.md]
+    evaluation --> experiments[experiments.md]
 ```
 
 ---
@@ -31,13 +37,13 @@ flowchart LR
 | [`preprocessing.md`](preprocessing.md) | gotowe | Pipeline danych end-to-end (load → export) |
 | [`artifacts.md`](artifacts.md) | gotowe | `meta.json`, vocab, API `src/artifacts/`, DataModule |
 | [`first_presentation.md`](first_presentation.md) | gotowe | Pełna prezentacja akademicka (problem, literatura, plan) |
-| `training.md` | planowane | LightningCLI, fit/evaluate, W&B, checkpointy |
-| `configuration.md` | planowane | Układ `config/*.yaml`, składanie eksperymentów |
-| `evaluation.md` | planowane | Metryki, sampled Recall@K, baseline POP |
-| `models/gru4rec.md` | planowane | Architektura GRU4Rec |
-| `models/tagnn.md` | planowane | Architektura TAGNN |
-| `models/tgn.md` | planowane | Architektura TGN |
-| `experiments.md` | planowane | Macierz runów i wyniki |
+| [`training.md`](training.md) | gotowe | LightningCLI, fit/evaluate, W&B, checkpointy |
+| [`configuration.md`](configuration.md) | gotowe | Układ `config/*.yaml`, składanie eksperymentów |
+| [`evaluation.md`](evaluation.md) | gotowe | Metryki, sampled Recall@K, baseline POP |
+| [`models/gru4rec.md`](models/gru4rec.md) | gotowe | Architektura GRU4Rec |
+| [`models/tagnn.md`](models/tagnn.md) | gotowe | Architektura TAGNN |
+| [`models/tgn.md`](models/tgn.md) | gotowe | Architektura TGN |
+| [`experiments.md`](experiments.md) | gotowe | Macierz runów i wyniki |
 | `projekt_info.pdf`, `adm_projekt_wm_mo.docx` | gotowe | Materiały formalne ADM |
 
 ---
@@ -56,11 +62,12 @@ Gdzie szukać implementacji w repozytorium:
 | Config preprocessingu | [`config/preprocessing.yaml`](../config/preprocessing.yaml), [`src/preprocessing/config.py`](../src/preprocessing/config.py) | [`data-and-eda.md`](data-and-eda.md), [`preprocessing.md`](preprocessing.md) |
 | Artefakty (odczyt) | [`src/artifacts/`](../src/artifacts/) | [`artifacts.md`](artifacts.md) |
 | DataModule | [`src/data_modules/`](../src/data_modules/) | [`artifacts.md`](artifacts.md) |
-| Modele | [`src/models/gru4rec/`](../src/models/gru4rec/), [`tagnn/`](../src/models/tagnn/), [`tgn/`](../src/models/tgn/) | [`overview.md`](overview.md) |
-| Trening CLI | [`src/main.py`](../src/main.py), [`src/utils/cli.py`](../src/utils/cli.py) | [`overview.md`](overview.md) |
-| Ewaluacja | [`src/evaluation/`](../src/evaluation/) | [`overview.md`](overview.md) |
-| Config treningu | [`config/default.yaml`](../config/default.yaml), `config/data/`, `config/model/`, `config/experiments/` | [`artifacts.md`](artifacts.md) |
-| W&B | [`src/config/wandb_settings.py`](../src/config/wandb_settings.py) | root README |
+| Modele | [`src/models/gru4rec/`](../src/models/gru4rec/), [`tagnn/`](../src/models/tagnn/), [`tgn/`](../src/models/tgn/) | [`models/gru4rec.md`](models/gru4rec.md), [`models/tagnn.md`](models/tagnn.md), [`models/tgn.md`](models/tgn.md) |
+| Trening CLI | [`src/main.py`](../src/main.py), [`src/utils/cli.py`](../src/utils/cli.py) | [`training.md`](training.md) |
+| Ewaluacja | [`src/evaluation/`](../src/evaluation/) | [`evaluation.md`](evaluation.md) |
+| Config treningu | [`config/default.yaml`](../config/default.yaml), `config/data/`, `config/model/`, `config/experiments/` | [`configuration.md`](configuration.md) |
+| Eksperymenty / W&B | runy baseline | [`experiments.md`](experiments.md) |
+| W&B ustawienia | [`src/config/wandb_settings.py`](../src/config/wandb_settings.py) | [`training.md`](training.md) |
 | Testy | [`tests/`](../tests/) | każdy odpowiedni dokument techniczny |
 
 ---
@@ -72,6 +79,7 @@ Gdzie szukać implementacji w repozytorium:
 | [Weights & Biases](https://wandb.ai/project-nn/adm-project-tgnn) | logi treningów, metryki |
 | [HackMD — notatki](https://hackmd.io/56eeHBjMQfmq4Wh2M82m4A) | prezentacja / notatki zespołu |
 | [Yoochoose na Kaggle](https://www.kaggle.com/datasets/chadgostopp/recsys-challenge-2015) | surowe dane |
+| [Lightning AI Studio](https://lightning.ai/) | środowisko GPU (T4) do baseline’ów |
 
 ---
 

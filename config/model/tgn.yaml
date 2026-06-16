@@ -4,7 +4,9 @@ model:
   init_args:
     num_items: 0
     num_sessions_train: 0
-    num_negatives: 1
+    num_negatives: 10
+    negative_sampling: uniform
+    negative_popularity_alpha: 1.0
     eval_num_negatives: 99
     memory_dim: 172
     time_dim: 100

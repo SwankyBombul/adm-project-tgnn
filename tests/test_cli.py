@@ -14,8 +14,10 @@ from src.utils.cli import (
     infer_run_name,
     link_gru4rec_num_embeddings,
     link_model_config_from_meta,
+    link_tgn_num_items,
     resolve_checkpoint_path,
 )
+from tests.tgn_fixtures import write_tgn_processed_dir
 
 
 def test_link_gru4rec_num_embeddings_namespace(tmp_path: Path) -> None:
@@ -66,6 +68,42 @@ def test_link_model_config_from_meta_tagnn(tmp_path: Path) -> None:
     link_model_config_from_meta(data_cfg, model_cfg)
 
     assert model_cfg["init_args"]["num_embeddings"] == 77
+
+
+def test_link_tgn_num_items_excludes_challenge_by_default_choice(tmp_path: Path) -> None:
+    processed = write_tgn_processed_dir(tmp_path, num_items=5, num_sessions=2)
+    data_cfg = {"init_args": {"processed_dir": str(processed)}}
+    model_cfg = {
+        "class_path": "src.models.tgn.module.TGNLitModule",
+        "init_args": {"num_items": 0, "num_sessions_train": 0},
+    }
+
+    link_model_config_from_meta(
+        data_cfg,
+        model_cfg,
+        include_tgn_challenge_sessions=False,
+    )
+
+    assert model_cfg["init_args"]["num_items"] == 6
+    assert model_cfg["init_args"]["num_sessions_train"] == 6
+
+
+def test_link_tgn_num_items_can_include_challenge(tmp_path: Path) -> None:
+    processed = write_tgn_processed_dir(tmp_path, num_items=5, num_sessions=2)
+    data_cfg = {"init_args": {"processed_dir": str(processed)}}
+    model_cfg = {
+        "class_path": "src.models.tgn.module.TGNLitModule",
+        "init_args": {"num_items": 0, "num_sessions_train": 0},
+    }
+
+    link_tgn_num_items(
+        data_cfg,
+        model_cfg,
+        include_challenge_test=True,
+    )
+
+    assert model_cfg["init_args"]["num_items"] == 6
+    assert model_cfg["init_args"]["num_sessions_train"] == 8
 
 
 def test_infer_model_name_and_run_name() -> None:

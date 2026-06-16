@@ -9,6 +9,7 @@ Projekt z przedmiotu **Advanced Data Mining (ADM)** — rekomendacje sesyjne z w
 | [Weights & Biases](https://wandb.ai/project-nn/adm-project-tgnn) | logi treningów, metryki, porównanie runów |
 | [HackMD — notatki](https://hackmd.io/56eeHBjMQfmq4Wh2M82m4A) | prezentacja / notatki zespołu |
 | [`docs/first_presentation.md`](docs/first_presentation.md) | opis problemu, danych i planu eksperymentów |
+| [`docs/README.md`](docs/README.md) | pełna dokumentacja techniczna (spis, mapa kodu) |
 | [Yoochoose na Kaggle](https://www.kaggle.com/datasets/chadgostopp/recsys-challenge-2015) | surowe dane |
 
 ---
@@ -16,6 +17,7 @@ Projekt z przedmiotu **Advanced Data Mining (ADM)** — rekomendacje sesyjne z w
 ## Spis treści
 
 - [O projekcie](#o-projekcie)
+- [Dokumentacja techniczna](#dokumentacja-techniczna)
 - [Pipeline w skrócie](#pipeline-w-skrocie)
 - [Wymagania](#wymagania)
 - [Szybki start (lokalnie)](#szybki-start-lokalnie)
@@ -37,6 +39,17 @@ Projekt z przedmiotu **Advanced Data Mining (ADM)** — rekomendacje sesyjne z w
 - **Model główny (docelowy):** TGN na grafie dynamicznym w czasie ciągłym (sesje ↔ produkty).
 - **Baseline:** modele sekwencyjne z grafowej reprezentacji sesji — na start **GRU4Rec**, później **TAGNN** (szczegóły w `docs/first_presentation.md`).
 - **Dane:** kliknięcia, zakupy i test challenge'u Yoochoose; po EDA pracujemy na chronologicznym subsample **1/32** pełnych sesji.
+
+## Dokumentacja techniczna
+
+Szczegółowa dokumentacja (decyzje EDA, preprocessing, artefakty, mapa kodu): **[`docs/README.md`](docs/README.md)**.
+
+| Dokument | Temat |
+|----------|-------|
+| [`docs/overview.md`](docs/overview.md) | Problem, CTDG, oś modeli GRU4Rec→TAGNN→TGN |
+| [`docs/data-and-eda.md`](docs/data-and-eda.md) | Decyzje z EDA i mapowanie na kod |
+| [`docs/preprocessing.md`](docs/preprocessing.md) | Pipeline preprocessingu end-to-end |
+| [`docs/artifacts.md`](docs/artifacts.md) | `meta.json`, kontrakt wejścia modeli |
 
 ## Pipeline w skrócie
 
@@ -304,6 +317,11 @@ Ustawienia W&B (`entity`, `project`, `login_wandb()`, `verify_wandb_access()`) s
 ```text
 adm-project-tgnn/
 ├── docs/                         # dokumentacja (prezentacja, materiały ADM)
+│   ├── README.md                 # hub dokumentacji technicznej
+│   ├── overview.md
+│   ├── data-and-eda.md
+│   ├── preprocessing.md
+│   ├── artifacts.md
 │   ├── first_presentation.md
 │   ├── adm_projekt_wm_mo.docx
 │   └── projekt_info.pdf

@@ -30,5 +30,7 @@ data:
 
 model:
   init_args:
-    num_negatives: 5
+    num_negatives: 10
+    negative_sampling: popularity
+    negative_popularity_alpha: 1.0
     weight_decay: 0.00001

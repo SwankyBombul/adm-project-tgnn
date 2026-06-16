@@ -1,5 +1,7 @@
 # Temporal Graphs for Recommendations
 
+> **Dokumentacja:** skrót operacyjny → [`overview.md`](overview.md); pełna dokumentacja techniczna → [`README.md`](README.md).
+
 **Przedmiot:** Advanced Data Mining (ADM)  
 **Zespół:** Wiktor Małysa (349105), Mikołaj Orzechowski (363917)  
 
